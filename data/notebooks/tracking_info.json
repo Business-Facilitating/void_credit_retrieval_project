@@ -1,0 +1,1129 @@
+{
+    "code": 0,
+    "data": {
+        "accepted": [
+            {
+                "number": "1Z005W760290052334",
+                "carrier": 100002,
+                "param": null,
+                "tag": "",
+                "track_info": {
+                    "shipping_info": {
+                        "shipper_address": {
+                            "country": "US",
+                            "state": "AZ",
+                            "city": "PHOENIX",
+                            "street": null,
+                            "postal_code": "850074158",
+                            "coordinates": {
+                                "longitude": null,
+                                "latitude": null
+                            }
+                        },
+                        "recipient_address": {
+                            "country": "US",
+                            "state": "NV",
+                            "city": "LAS VEGAS",
+                            "street": null,
+                            "postal_code": "89102",
+                            "coordinates": {
+                                "longitude": null,
+                                "latitude": null
+                            }
+                        }
+                    },
+                    "latest_status": {
+                        "status": "Delivered",
+                        "sub_status": "Delivered_Other",
+                        "sub_status_descr": null
+                    },
+                    "latest_event": {
+                        "time_iso": "2025-07-30T13:38:47-07:00",
+                        "time_utc": "2025-07-30T20:38:47Z",
+                        "time_raw": {
+                            "date": "2025-07-30",
+                            "time": "13:38:47",
+                            "timezone": null
+                        },
+                        "description": "Delivered",
+                        "location": "LAS VEGAS, NV, US",
+                        "stage": "Delivered",
+                        "sub_status": "Delivered_Other",
+                        "address": {
+                            "country": "US",
+                            "state": "NV",
+                            "city": "LAS VEGAS",
+                            "street": null,
+                            "postal_code": "89102",
+                            "coordinates": {
+                                "longitude": null,
+                                "latitude": null
+                            }
+                        }
+                    },
+                    "time_metrics": {
+                        "days_after_order": 3,
+                        "days_of_transit": 2,
+                        "days_of_transit_done": 2,
+                        "days_after_last_update": 0,
+                        "estimated_delivery_date": {
+                            "source": null,
+                            "from": null,
+                            "to": null
+                        }
+                    },
+                    "milestone": [
+                        {
+                            "key_stage": "InfoReceived",
+                            "time_iso": "2025-07-28T11:40:16-04:00",
+                            "time_utc": "2025-07-28T15:40:16Z",
+                            "time_raw": {
+                                "date": "2025-07-28",
+                                "time": "11:40:16",
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "PickedUp",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Departure",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Arrival",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "AvailableForPickup",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "OutForDelivery",
+                            "time_iso": "2025-07-30T09:06:35-04:00",
+                            "time_utc": "2025-07-30T13:06:35Z",
+                            "time_raw": {
+                                "date": "2025-07-30",
+                                "time": "09:06:35",
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Delivered",
+                            "time_iso": "2025-07-30T13:38:47-07:00",
+                            "time_utc": "2025-07-30T20:38:47Z",
+                            "time_raw": {
+                                "date": "2025-07-30",
+                                "time": "13:38:47",
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Returning",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Returned",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        }
+                    ],
+                    "misc_info": {
+                        "risk_factor": 0,
+                        "service_type": "UPS 2nd Day Air",
+                        "weight_raw": "35.00LBS",
+                        "weight_kg": "15.88",
+                        "pieces": null,
+                        "dimensions": null,
+                        "customer_number": null,
+                        "reference_number": null,
+                        "local_number": null,
+                        "local_provider": null,
+                        "local_key": 0
+                    },
+                    "tracking": {
+                        "providers_hash": 1420864240,
+                        "providers": [
+                            {
+                                "provider": {
+                                    "key": 100002,
+                                    "name": "UPS",
+                                    "alias": "UPS",
+                                    "tel": "+1 (800) 742-5877",
+                                    "homepage": "https://www.ups.com/",
+                                    "country": "US"
+                                },
+                                "provider_lang": null,
+                                "service_type": "UPS 2nd Day Air",
+                                "latest_sync_status": "Success",
+                                "latest_sync_time": "2025-08-13T17:12:20Z",
+                                "events_hash": -1199811097,
+                                "provider_tips": null,
+                                "events": [
+                                    {
+                                        "time_iso": "2025-07-30T13:38:47-07:00",
+                                        "time_utc": "2025-07-30T20:38:47Z",
+                                        "time_raw": {
+                                            "date": "2025-07-30",
+                                            "time": "13:38:47",
+                                            "timezone": null
+                                        },
+                                        "description": "Delivered",
+                                        "location": "LAS VEGAS, NV, US",
+                                        "stage": "Delivered",
+                                        "sub_status": "Delivered_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "NV",
+                                            "city": "LAS VEGAS",
+                                            "street": null,
+                                            "postal_code": "89102",
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-30T09:06:35-04:00",
+                                        "time_utc": "2025-07-30T13:06:35Z",
+                                        "time_raw": {
+                                            "date": "2025-07-30",
+                                            "time": "09:06:35",
+                                            "timezone": null
+                                        },
+                                        "description": "Out For Delivery Today",
+                                        "location": "Las Vegas, NV, US",
+                                        "stage": "OutForDelivery",
+                                        "sub_status": "OutForDelivery_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "NV",
+                                            "city": "Las Vegas",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-30T06:05:38-04:00",
+                                        "time_utc": "2025-07-30T10:05:38Z",
+                                        "time_raw": {
+                                            "date": "2025-07-30",
+                                            "time": "06:05:38",
+                                            "timezone": null
+                                        },
+                                        "description": "Loaded on Delivery Vehicle",
+                                        "location": "Las Vegas, NV, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "NV",
+                                            "city": "Las Vegas",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-30T05:10:49-04:00",
+                                        "time_utc": "2025-07-30T09:10:49Z",
+                                        "time_raw": {
+                                            "date": "2025-07-30",
+                                            "time": "05:10:49",
+                                            "timezone": null
+                                        },
+                                        "description": "Processing at UPS Facility",
+                                        "location": "Las Vegas, NV, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "NV",
+                                            "city": "Las Vegas",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-30T03:18:00-04:00",
+                                        "time_utc": "2025-07-30T07:18:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-30",
+                                            "time": "03:18:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Las Vegas, NV, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "NV",
+                                            "city": "Las Vegas",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-30T02:58:00-04:00",
+                                        "time_utc": "2025-07-30T06:58:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-30",
+                                            "time": "02:58:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Las Vegas, NV, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "NV",
+                                            "city": "Las Vegas",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-29T11:09:00-04:00",
+                                        "time_utc": "2025-07-29T15:09:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-29",
+                                            "time": "11:09:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Las Vegas, NV, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "NV",
+                                            "city": "Las Vegas",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-29T06:10:00-04:00",
+                                        "time_utc": "2025-07-29T10:10:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-29",
+                                            "time": "06:10:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Goodyear, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Goodyear",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-28T23:26:00-04:00",
+                                        "time_utc": "2025-07-29T03:26:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "23:26:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Goodyear, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Goodyear",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-28T22:53:00-04:00",
+                                        "time_utc": "2025-07-29T02:53:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "22:53:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Phoenix, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Phoenix",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-28T21:57:50-04:00",
+                                        "time_utc": "2025-07-29T01:57:50Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "21:57:50",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Phoenix, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Phoenix",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-28T11:40:16-04:00",
+                                        "time_utc": "2025-07-28T15:40:16Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "11:40:16",
+                                            "timezone": null
+                                        },
+                                        "description": "Shipper created a label, UPS has not received the package yet.",
+                                        "location": "US",
+                                        "stage": "InfoReceived",
+                                        "sub_status": "InfoReceived",
+                                        "address": {
+                                            "country": "US",
+                                            "state": null,
+                                            "city": null,
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "lang": null,
+                "destination_postal_code": null,
+                "origin_country": null,
+                "destination_country": null,
+                "destination_city": null,
+                "ship_date": null,
+                "shipper": null,
+                "consignee": null,
+                "phone_number_last_4": null,
+                "phone_number": null,
+                "cpf_or_cnpj": null,
+                "special_tracking_info": null
+            },
+            {
+                "number": "1Z005W760390165201",
+                "carrier": 100002,
+                "param": null,
+                "tag": "",
+                "track_info": {
+                    "shipping_info": {
+                        "shipper_address": {
+                            "country": "US",
+                            "state": "AZ",
+                            "city": "PHOENIX",
+                            "street": null,
+                            "postal_code": "850074158",
+                            "coordinates": {
+                                "longitude": null,
+                                "latitude": null
+                            }
+                        },
+                        "recipient_address": {
+                            "country": "US",
+                            "state": "WA",
+                            "city": "CHEHALIS",
+                            "street": null,
+                            "postal_code": "98532",
+                            "coordinates": {
+                                "longitude": null,
+                                "latitude": null
+                            }
+                        }
+                    },
+                    "latest_status": {
+                        "status": "Delivered",
+                        "sub_status": "Delivered_Other",
+                        "sub_status_descr": null
+                    },
+                    "latest_event": {
+                        "time_iso": "2025-07-28T15:48:33-07:00",
+                        "time_utc": "2025-07-28T22:48:33Z",
+                        "time_raw": {
+                            "date": "2025-07-28",
+                            "time": "15:48:33",
+                            "timezone": null
+                        },
+                        "description": "Delivered",
+                        "location": "CHEHALIS, WA, US",
+                        "stage": "Delivered",
+                        "sub_status": "Delivered_Other",
+                        "address": {
+                            "country": "US",
+                            "state": "WA",
+                            "city": "CHEHALIS",
+                            "street": null,
+                            "postal_code": "98532",
+                            "coordinates": {
+                                "longitude": null,
+                                "latitude": null
+                            }
+                        }
+                    },
+                    "time_metrics": {
+                        "days_after_order": 6,
+                        "days_of_transit": 5,
+                        "days_of_transit_done": 5,
+                        "days_after_last_update": 0,
+                        "estimated_delivery_date": {
+                            "source": null,
+                            "from": null,
+                            "to": null
+                        }
+                    },
+                    "milestone": [
+                        {
+                            "key_stage": "InfoReceived",
+                            "time_iso": "2025-07-23T09:35:28-04:00",
+                            "time_utc": "2025-07-23T13:35:28Z",
+                            "time_raw": {
+                                "date": "2025-07-23",
+                                "time": "09:35:28",
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "PickedUp",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Departure",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Arrival",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "AvailableForPickup",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "OutForDelivery",
+                            "time_iso": "2025-07-28T08:55:47-04:00",
+                            "time_utc": "2025-07-28T12:55:47Z",
+                            "time_raw": {
+                                "date": "2025-07-28",
+                                "time": "08:55:47",
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Delivered",
+                            "time_iso": "2025-07-28T15:48:33-07:00",
+                            "time_utc": "2025-07-28T22:48:33Z",
+                            "time_raw": {
+                                "date": "2025-07-28",
+                                "time": "15:48:33",
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Returning",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        },
+                        {
+                            "key_stage": "Returned",
+                            "time_iso": null,
+                            "time_utc": null,
+                            "time_raw": {
+                                "date": null,
+                                "time": null,
+                                "timezone": null
+                            }
+                        }
+                    ],
+                    "misc_info": {
+                        "risk_factor": 0,
+                        "service_type": "UPS Ground",
+                        "weight_raw": "45.00LBS",
+                        "weight_kg": "20.41",
+                        "pieces": null,
+                        "dimensions": null,
+                        "customer_number": null,
+                        "reference_number": null,
+                        "local_number": null,
+                        "local_provider": null,
+                        "local_key": 0
+                    },
+                    "tracking": {
+                        "providers_hash": -1111996915,
+                        "providers": [
+                            {
+                                "provider": {
+                                    "key": 100002,
+                                    "name": "UPS",
+                                    "alias": "UPS",
+                                    "tel": "+1 (800) 742-5877",
+                                    "homepage": "https://www.ups.com/",
+                                    "country": "US"
+                                },
+                                "provider_lang": null,
+                                "service_type": "UPS Ground",
+                                "latest_sync_status": "Success",
+                                "latest_sync_time": "2025-08-13T17:12:20Z",
+                                "events_hash": -1405307175,
+                                "provider_tips": null,
+                                "events": [
+                                    {
+                                        "time_iso": "2025-07-28T15:48:33-07:00",
+                                        "time_utc": "2025-07-28T22:48:33Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "15:48:33",
+                                            "timezone": null
+                                        },
+                                        "description": "Delivered",
+                                        "location": "CHEHALIS, WA, US",
+                                        "stage": "Delivered",
+                                        "sub_status": "Delivered_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "WA",
+                                            "city": "CHEHALIS",
+                                            "street": null,
+                                            "postal_code": "98532",
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-28T08:55:47-04:00",
+                                        "time_utc": "2025-07-28T12:55:47Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "08:55:47",
+                                            "timezone": null
+                                        },
+                                        "description": "Out For Delivery Today",
+                                        "location": "Chehalis, WA, US",
+                                        "stage": "OutForDelivery",
+                                        "sub_status": "OutForDelivery_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "WA",
+                                            "city": "Chehalis",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-28T08:37:56-04:00",
+                                        "time_utc": "2025-07-28T12:37:56Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "08:37:56",
+                                            "timezone": null
+                                        },
+                                        "description": "Loaded on Delivery Vehicle",
+                                        "location": "Chehalis, WA, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "WA",
+                                            "city": "Chehalis",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-28T03:53:47-04:00",
+                                        "time_utc": "2025-07-28T07:53:47Z",
+                                        "time_raw": {
+                                            "date": "2025-07-28",
+                                            "time": "03:53:47",
+                                            "timezone": null
+                                        },
+                                        "description": "Processing at UPS Facility",
+                                        "location": "Chehalis, WA, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "WA",
+                                            "city": "Chehalis",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-26T05:49:00-04:00",
+                                        "time_utc": "2025-07-26T09:49:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-26",
+                                            "time": "05:49:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Chehalis, WA, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "WA",
+                                            "city": "Chehalis",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-26T04:39:00-04:00",
+                                        "time_utc": "2025-07-26T08:39:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-26",
+                                            "time": "04:39:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Tacoma, WA, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "WA",
+                                            "city": "Tacoma",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-25T21:34:00-04:00",
+                                        "time_utc": "2025-07-26T01:34:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-25",
+                                            "time": "21:34:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Tacoma, WA, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "WA",
+                                            "city": "Tacoma",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-25T16:50:00-04:00",
+                                        "time_utc": "2025-07-25T20:50:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-25",
+                                            "time": "16:50:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Hermiston, OR, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "OR",
+                                            "city": "Hermiston",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-25T14:22:00-04:00",
+                                        "time_utc": "2025-07-25T18:22:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-25",
+                                            "time": "14:22:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Hermiston, OR, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "OR",
+                                            "city": "Hermiston",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-25T05:14:00-04:00",
+                                        "time_utc": "2025-07-25T09:14:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-25",
+                                            "time": "05:14:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Salt Lake City, UT, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "UT",
+                                            "city": "Salt Lake City",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-24T23:15:00-04:00",
+                                        "time_utc": "2025-07-25T03:15:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-24",
+                                            "time": "23:15:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Salt Lake City, UT, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "UT",
+                                            "city": "Salt Lake City",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-24T06:27:00-04:00",
+                                        "time_utc": "2025-07-24T10:27:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-24",
+                                            "time": "06:27:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Goodyear, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Goodyear",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-23T22:20:00-04:00",
+                                        "time_utc": "2025-07-24T02:20:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-23",
+                                            "time": "22:20:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Goodyear, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Goodyear",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-23T21:52:00-04:00",
+                                        "time_utc": "2025-07-24T01:52:00Z",
+                                        "time_raw": {
+                                            "date": "2025-07-23",
+                                            "time": "21:52:00",
+                                            "timezone": null
+                                        },
+                                        "description": "Departed from Facility",
+                                        "location": "Phoenix, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Phoenix",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-23T21:02:03-04:00",
+                                        "time_utc": "2025-07-24T01:02:03Z",
+                                        "time_raw": {
+                                            "date": "2025-07-23",
+                                            "time": "21:02:03",
+                                            "timezone": null
+                                        },
+                                        "description": "Arrived at Facility",
+                                        "location": "Phoenix, AZ, US",
+                                        "stage": null,
+                                        "sub_status": "InTransit_Other",
+                                        "address": {
+                                            "country": "US",
+                                            "state": "AZ",
+                                            "city": "Phoenix",
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "time_iso": "2025-07-23T09:35:28-04:00",
+                                        "time_utc": "2025-07-23T13:35:28Z",
+                                        "time_raw": {
+                                            "date": "2025-07-23",
+                                            "time": "09:35:28",
+                                            "timezone": null
+                                        },
+                                        "description": "Shipper created a label, UPS has not received the package yet.",
+                                        "location": "US",
+                                        "stage": "InfoReceived",
+                                        "sub_status": "InfoReceived",
+                                        "address": {
+                                            "country": "US",
+                                            "state": null,
+                                            "city": null,
+                                            "street": null,
+                                            "postal_code": null,
+                                            "coordinates": {
+                                                "longitude": null,
+                                                "latitude": null
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "lang": null,
+                "destination_postal_code": null,
+                "origin_country": null,
+                "destination_country": null,
+                "destination_city": null,
+                "ship_date": null,
+                "shipper": null,
+                "consignee": null,
+                "phone_number_last_4": null,
+                "phone_number": null,
+                "cpf_or_cnpj": null,
+                "special_tracking_info": null
+            }
+        ],
+        "rejected": [
+            {
+                "carrier": 100002,
+                "number": "1Z005W760390197089",
+                "error": {
+                    "code": -18019902,
+                    "message": "The tracking number '1Z005W760390197089' does not register, please register first."
+                }
+            },
+            {
+                "carrier": 100002,
+                "number": "1Z005W760390184084",
+                "error": {
+                    "code": -18019902,
+                    "message": "The tracking number '1Z005W760390184084' does not register, please register first."
+                }
+            },
+            {
+                "carrier": 100002,
+                "number": "1Z005W760390160779",
+                "error": {
+                    "code": -18019902,
+                    "message": "The tracking number '1Z005W760390160779' does not register, please register first."
+                }
+            }
+        ]
+    }
+}
