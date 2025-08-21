@@ -28,13 +28,29 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import requests
 
-# 17Track API Configuration
-API_URL = "https://api.17track.net/track/v2.4/gettrackinfo"
-REGISTER_API_URL = "https://api.17track.net/track/v2.2/register"
-API_TOKEN = "3ED9315FC1B2FC06CB396E95FE72AB66"
-DEFAULT_CARRIER_CODE = 100002  # UPS carrier code
-BATCH_SIZE = 40  # Maximum tracking numbers per API call
-API_DELAY = 1.0  # Delay between API calls in seconds
+# 17Track API Configuration - Using environment variables
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_URL = os.getenv(
+    "SEVENTEEN_TRACK_API_URL", "https://api.17track.net/track/v2.4/gettrackinfo"
+)
+REGISTER_API_URL = os.getenv(
+    "SEVENTEEN_TRACK_REGISTER_URL", "https://api.17track.net/track/v2.2/register"
+)
+API_TOKEN = os.getenv("SEVENTEEN_TRACK_API_TOKEN")
+DEFAULT_CARRIER_CODE = int(
+    os.getenv("SEVENTEEN_TRACK_DEFAULT_CARRIER_CODE", "100002")
+)  # UPS carrier code
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "40"))  # Maximum tracking numbers per API call
+API_DELAY = float(os.getenv("API_DELAY", "1.0"))  # Delay between API calls in seconds
+
+# Validate required environment variables
+if not API_TOKEN:
+    raise ValueError(
+        "SEVENTEEN_TRACK_API_TOKEN environment variable is required. Please check your .env file."
+    )
 
 # Ensure output directory exists
 OUTPUT_DIR = "data/output"
@@ -690,4 +706,6 @@ def main():
 
 
 if __name__ == "__main__":
+    main()
+    main()
     main()

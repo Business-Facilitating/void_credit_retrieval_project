@@ -4,6 +4,7 @@ Test script for ClickHouse connection
 Run this to debug connection issues outside of Jupyter notebook
 """
 
+import os
 import ssl
 import sys
 import traceback
@@ -16,23 +17,41 @@ from clickhouse_connect import get_client
 
 def test_clickhouse_connection():
     """Test ClickHouse connection with detailed error reporting"""
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
     print("=" * 60)
     print("ClickHouse Connection Test")
     print("=" * 60)
 
-    # Connection parameters
+    # Connection parameters from environment variables
     connection_params = {
-        "host": "pgy8egpix3.us-east-1.aws.clickhouse.cloud",
-        "port": 9440,
-        "username": "gabriellapuz",
-        "password": "PTN.776)RR3s",
-        "database": "peerdb",
-        "secure": True,
+        "host": os.getenv("CLICKHOUSE_HOST"),
+        "port": int(os.getenv("CLICKHOUSE_PORT", "9440")),
+        "username": os.getenv("CLICKHOUSE_USERNAME"),
+        "password": os.getenv("CLICKHOUSE_PASSWORD"),
+        "database": os.getenv("CLICKHOUSE_DATABASE"),
+        "secure": os.getenv("CLICKHOUSE_SECURE", "true").lower() == "true",
         "verify": False,  # Disable SSL verification (for Windows SSL issues)
         "connect_timeout": 30,
         "send_receive_timeout": 30,
     }
+
+    # Validate required environment variables
+    required_vars = [
+        "CLICKHOUSE_HOST",
+        "CLICKHOUSE_USERNAME",
+        "CLICKHOUSE_PASSWORD",
+        "CLICKHOUSE_DATABASE",
+    ]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
+        print(
+            "💡 Please check your .env file and ensure all ClickHouse credentials are set."
+        )
+        return None
 
     print(f"Connection parameters:")
     for key, value in connection_params.items():

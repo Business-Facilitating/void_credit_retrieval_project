@@ -153,21 +153,37 @@ def clickhouse_carrier_invoice_source():
     """
     DLT source that extracts data FROM ClickHouse carrier_carrier_invoice_original_flat_ups table
 
-    Note: Using hardcoded credentials to avoid DLT configuration injection issues
+    Note: Using environment variables for secure credential management
     """
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
     # Target table name
     table_name = "carrier_carrier_invoice_original_flat_ups"
 
-    # Create connection with hardcoded working credentials
+    # Create connection with environment variables
     ch_conn = ClickHouseConnection(
-        host="pgy8egpix3.us-east-1.aws.clickhouse.cloud",
-        port=8443,
-        username="gabriellapuz",
-        password="PTN.776)RR3s",
-        database="peerdb",
-        secure=True,
+        host=os.getenv("CLICKHOUSE_HOST"),
+        port=int(os.getenv("CLICKHOUSE_PORT", "9440")),
+        username=os.getenv("CLICKHOUSE_USERNAME"),
+        password=os.getenv("CLICKHOUSE_PASSWORD"),
+        database=os.getenv("CLICKHOUSE_DATABASE"),
+        secure=os.getenv("CLICKHOUSE_SECURE", "true").lower() == "true",
     )
+
+    # Validate required environment variables
+    required_vars = [
+        "CLICKHOUSE_HOST",
+        "CLICKHOUSE_USERNAME",
+        "CLICKHOUSE_PASSWORD",
+        "CLICKHOUSE_DATABASE",
+    ]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        raise ValueError(
+            f"Missing required environment variables: {', '.join(missing_vars)}. Please check your .env file."
+        )
 
     connection_success = ch_conn.connect()
 
