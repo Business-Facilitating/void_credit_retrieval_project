@@ -5,9 +5,22 @@ import time
 from datetime import datetime
 
 import requests
+from dotenv import load_dotenv
 
-# url = "https://wwwcie.ups.com/security/v1/oauth/token"
-url = "https://onlinetools.ups.com/security/v1/oauth/token"
+# Load environment variables
+load_dotenv()
+
+# Get UPS API URLs from environment variables
+UPS_TOKEN_URL = os.getenv("UPS_TOKEN_URL")
+UPS_TRACKING_URL = os.getenv("UPS_TRACKING_URL")
+
+# Validate required environment variables
+if not UPS_TOKEN_URL:
+    raise ValueError("UPS_TOKEN_URL environment variable is required")
+if not UPS_TRACKING_URL:
+    raise ValueError("UPS_TRACKING_URL environment variable is required")
+
+url = UPS_TOKEN_URL
 
 username = "Cs4KhQU4i8w80AHzi5UT3onZtx1CRgGUZD9wCu10LHjuL4tt"
 password = "49yK1AvXl8JeuJCz2PHJM5D6I2ggsyTKgoFtN360fMDBnArn7vvzYUe0HHgxB6kP"
@@ -49,7 +62,7 @@ all_responses = []
 for i, inquiry_number in enumerate(tracking_nums, 1):
     print(f"Processing tracking number {i}/{len(tracking_nums)}: {inquiry_number}")
 
-    url = "https://onlinetools.ups.com/api/track/v1/details/" + inquiry_number
+    url = UPS_TRACKING_URL + inquiry_number
     epoch_time = int(time.time())
 
     headers = {
