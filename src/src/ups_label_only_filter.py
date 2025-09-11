@@ -26,6 +26,10 @@ from typing import Dict, List, Optional, Tuple
 
 import duckdb
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -38,9 +42,15 @@ DUCKDB_PATH = os.getenv("DUCKDB_PATH", "carrier_invoice_extraction.duckdb")
 TABLE_NAME = "carrier_invoice_extraction.carrier_invoice_data"
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "data/output")
 
-# UPS API Configuration
-UPS_TOKEN_URL = "https://onlinetools.ups.com/security/v1/oauth/token"
-UPS_TRACKING_URL = "https://onlinetools.ups.com/api/track/v1/details/"
+# UPS API Configuration - Load from environment variables
+UPS_TOKEN_URL = os.getenv("UPS_TOKEN_URL")
+UPS_TRACKING_URL = os.getenv("UPS_TRACKING_URL")
+
+# Validate required UPS API environment variables
+if not UPS_TOKEN_URL:
+    raise ValueError("UPS_TOKEN_URL environment variable is required")
+if not UPS_TRACKING_URL:
+    raise ValueError("UPS_TRACKING_URL environment variable is required")
 
 # UPS API Credentials (from existing ups_api.py)
 UPS_USERNAME = "Cs4KhQU4i8w80AHzi5UT3onZtx1CRgGUZD9wCu10LHjuL4tt"
