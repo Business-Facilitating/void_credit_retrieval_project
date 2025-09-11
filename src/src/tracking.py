@@ -5,7 +5,11 @@ from datetime import datetime
 from typing import List, Optional
 
 import trackingmore
+from dotenv import load_dotenv
 from trackingmore.exception import TrackingMoreException
+
+# Load environment variables from .env file
+load_dotenv()
 
 # DuckDB imports
 try:
@@ -16,18 +20,23 @@ except ImportError:
     DUCKDB_AVAILABLE = False
     print("❌ DuckDB library not available. Install with: poetry add duckdb")
 
-# Configuration
-BATCH_SIZE = 40  # API rate limit consideration
-API_DELAY = 1.0  # Delay between API calls in seconds
-DUCKDB_PATH = "carrier_invoice_extraction.duckdb"
+# Configuration - Using environment variables
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "40"))  # API rate limit consideration
+API_DELAY = float(os.getenv("API_DELAY", "1.0"))  # Delay between API calls in seconds
+DUCKDB_PATH = os.getenv("DUCKDB_PATH", "carrier_invoice_extraction.duckdb")
 TABLE_NAME = "carrier_invoice_data.carrier_invoice_data"
 
 # Ensure output directory exists
-output_dir = "data/output"
+output_dir = os.getenv("OUTPUT_DIR", "data/output")
 os.makedirs(output_dir, exist_ok=True)
 
-# TrackingMore API configuration
-API_KEY = "6i1yot9f-802k-he7c-iv03-mduqzvgi9bh2"
+# TrackingMore API configuration - Using environment variables
+API_KEY = os.getenv("TRACKINGMORE_API_KEY")
+if not API_KEY:
+    raise ValueError(
+        "TRACKINGMORE_API_KEY environment variable is required. Please check your .env file."
+    )
+
 trackingmore.api_key = API_KEY
 
 

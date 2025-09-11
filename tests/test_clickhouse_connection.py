@@ -1,97 +1,188 @@
 #!/usr/bin/env python3
 """
-Test script for ClickHouse connection
-Run this to debug connection issues outside of Jupyter notebook
+Simple ClickHouse Connection Test
 """
 
+import os
 import ssl
-import sys
-import traceback
 
 import certifi
-import clickhouse_connect
-import urllib3
-from clickhouse_connect import get_client
+import requests
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+try:
+    import clickhouse_connect
+
+    print("✅ clickhouse_connect library available")
+except ImportError:
+    print("❌ clickhouse_connect library not available")
+    exit(1)
 
 
-def test_clickhouse_connection():
-    """Test ClickHouse connection with detailed error reporting"""
-
-    print("=" * 60)
-    print("ClickHouse Connection Test")
-    print("=" * 60)
-
-    # Connection parameters
-    connection_params = {
-        "host": "pgy8egpix3.us-east-1.aws.clickhouse.cloud",
-        "port": 9440,
-        "username": "gabriellapuz",
-        "password": "PTN.776)RR3s",
-        "database": "peerdb",
-        "secure": True,
-        "verify": False,  # Disable SSL verification (for Windows SSL issues)
-        "connect_timeout": 30,
-        "send_receive_timeout": 30,
-    }
-
-    print(f"Connection parameters:")
-    for key, value in connection_params.items():
-        if key == "password":
-            print(f"  {key}: {'*' * len(str(value))}")
-        else:
-            print(f"  {key}: {value}")
-    print()
+# Test basic HTTPS connectivity first
+def test_https_connectivity():
+    print("\n🌐 Testing basic HTTPS connectivity...")
+    host = os.getenv("CLICKHOUSE_HOST")
+    port = int(os.getenv("CLICKHOUSE_PORT", "8443"))
 
     try:
-        print("Attempting to connect...")
-        client = get_client(**connection_params)
-        print("✓ Client created successfully")
+        url = f"https://{host}:{port}/"
+        response = requests.get(url, timeout=10, verify=False)
+        print(f"✅ HTTPS connection successful (status: {response.status_code})")
+        return True
+    except Exception as e:
+        print(f"❌ HTTPS connection failed: {e}")
+        return False
 
-        print("Testing connection with simple query...")
-        result = client.command("SELECT 1 as test")
-        print(f"✓ Connection test successful! Result: {result}")
 
-        print("Testing database access...")
-        result = client.command("SELECT version()")
-        print(f"✓ ClickHouse version: {result}")
+# Get connection parameters from environment
+host = os.getenv("CLICKHOUSE_HOST")
+port = int(os.getenv("CLICKHOUSE_PORT", "8443"))
+username = os.getenv("CLICKHOUSE_USERNAME")
+password = os.getenv("CLICKHOUSE_PASSWORD")
+database = os.getenv("CLICKHOUSE_DATABASE")
+secure = os.getenv("CLICKHOUSE_SECURE", "true").lower() == "true"
 
-        print("Testing database list...")
-        result = client.command("SHOW DATABASES")
-        print(f"✓ Available databases: {result}")
+print(f"🔗 Attempting to connect to ClickHouse:")
+print(f"   Host: {host}")
+print(f"   Port: {port}")
+print(f"   Username: {username}")
+print(f"   Database: {database}")
+print(f"   Secure: {secure}")
 
-        print("\n" + "=" * 60)
-        print("✓ ALL TESTS PASSED - Connection is working!")
-        print("=" * 60)
+# Test basic connectivity first
+test_https_connectivity()
 
-        return client
+# Try different connection configurations
+connection_configs = [
+    {
+        "name": "Standard SSL connection",
+        "params": {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "database": database,
+            "secure": secure,
+        },
+    },
+    {
+        "name": "SSL with extended timeouts",
+        "params": {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "database": database,
+            "secure": secure,
+            "connect_timeout": 60,
+            "send_receive_timeout": 300,
+        },
+    },
+    {
+        "name": "SSL with verification disabled",
+        "params": {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "database": database,
+            "secure": secure,
+            "verify": False,
+            "connect_timeout": 60,
+            "send_receive_timeout": 300,
+        },
+    },
+    {
+        "name": "HTTP interface",
+        "params": {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "database": database,
+            "secure": secure,
+            "interface": "http",
+            "verify": False,
+        },
+    },
+    {
+        "name": "HTTPS with custom CA bundle",
+        "params": {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "database": database,
+            "secure": secure,
+            "ca_certs": "system",
+            "verify": True,
+        },
+    },
+    {
+        "name": "SSL with certifi CA bundle",
+        "params": {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "database": database,
+            "secure": secure,
+            "verify": certifi.where(),
+            "connect_timeout": 60,
+        },
+    },
+    {
+        "name": "SSL context with system certs",
+        "params": {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "database": database,
+            "secure": secure,
+            "verify": True,
+            "connect_timeout": 60,
+        },
+    },
+]
+
+for config in connection_configs:
+    print(f"\n🧪 Testing: {config['name']}")
+    try:
+        client = clickhouse_connect.get_client(**config["params"])
+        result = client.command("SELECT 1")
+        if result == 1:
+            print(f"✅ Connection successful!")
+
+            # Test a simple query
+            try:
+                tables = client.command("SHOW TABLES")
+                print(f"📊 Available tables: {tables}")
+
+                # Check if our target table exists
+                target_table = "carrier_carrier_invoice_original_flat_ups"
+                table_exists = client.command(f"EXISTS TABLE {target_table}")
+                print(f"🎯 Target table '{target_table}' exists: {table_exists}")
+
+                if table_exists:
+                    # Get table info
+                    count = client.command(f"SELECT COUNT(*) FROM {target_table}")
+                    print(f"📈 Table row count: {count}")
+
+                break
+
+            except Exception as e:
+                print(f"⚠️ Connection works but query failed: {e}")
+                break
+        else:
+            print(f"❌ Connection test failed")
 
     except Exception as e:
-        print(f"\n❌ Connection failed!")
-        print(f"Error type: {type(e).__name__}")
-        print(f"Error message: {str(e)}")
-        print("\nFull traceback:")
-        traceback.print_exc()
+        print(f"❌ Connection failed: {type(e).__name__}: {str(e)}")
 
-        print("\n" + "=" * 60)
-        print("TROUBLESHOOTING SUGGESTIONS:")
-        print("=" * 60)
-        print("1. Check if your password is correct (no extra spaces)")
-        print("2. Verify your username and host are correct")
-        print("3. Ensure your ClickHouse Cloud instance is running")
-        print("4. Check if your IP is whitelisted in ClickHouse Cloud")
-        print("5. Verify network connectivity (firewall, VPN, etc.)")
-        print("6. Try connecting from ClickHouse Cloud console first")
-        print("=" * 60)
-
-        return None
-
-
-if __name__ == "__main__":
-    client = test_clickhouse_connection()
-    if client:
-        print("\nYou can now use this connection in your notebook!")
-    else:
-        print("\nPlease fix the connection issues before proceeding.")
-        sys.exit(1)
-        print("\nPlease fix the connection issues before proceeding.")
-        sys.exit(1)
+print("\n🏁 Connection test completed")
+print("\n🏁 Connection test completed")

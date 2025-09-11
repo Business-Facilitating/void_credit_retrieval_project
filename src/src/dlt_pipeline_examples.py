@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 import dlt
-import pandas as pd
 from dateutil import parser
 
 # ClickHouse imports with fallback handling
@@ -93,6 +92,9 @@ class ClickHouseConnection:
                 password=self.password,
                 database=self.database,
                 secure=self.secure,
+                connect_timeout=60,
+                send_receive_timeout=300,
+                verify=False,  # Disable SSL verification for cloud connections
             )
 
             # Test connection
@@ -153,21 +155,37 @@ def clickhouse_carrier_invoice_source():
     """
     DLT source that extracts data FROM ClickHouse carrier_carrier_invoice_original_flat_ups table
 
-    Note: Using hardcoded credentials to avoid DLT configuration injection issues
+    Note: Using environment variables for secure credential management
     """
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
     # Target table name
     table_name = "carrier_carrier_invoice_original_flat_ups"
 
-    # Create connection with hardcoded working credentials
+    # Create connection with environment variables
     ch_conn = ClickHouseConnection(
-        host="pgy8egpix3.us-east-1.aws.clickhouse.cloud",
-        port=8443,
-        username="gabriellapuz",
-        password="PTN.776)RR3s",
-        database="peerdb",
-        secure=True,
+        host=os.getenv("CLICKHOUSE_HOST"),
+        port=int(os.getenv("CLICKHOUSE_PORT", "8443")),
+        username=os.getenv("CLICKHOUSE_USERNAME"),
+        password=os.getenv("CLICKHOUSE_PASSWORD"),
+        database=os.getenv("CLICKHOUSE_DATABASE"),
+        secure=os.getenv("CLICKHOUSE_SECURE", "true").lower() == "true",
     )
+
+    # Validate required environment variables
+    required_vars = [
+        "CLICKHOUSE_HOST",
+        "CLICKHOUSE_USERNAME",
+        "CLICKHOUSE_PASSWORD",
+        "CLICKHOUSE_DATABASE",
+    ]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        raise ValueError(
+            f"Missing required environment variables: {', '.join(missing_vars)}. Please check your .env file."
+        )
 
     connection_success = ch_conn.connect()
 
@@ -251,15 +269,15 @@ def create_carrier_invoice_resource(ch_conn, table_name):
 
                 # Window configuration (seconds). Default: 1 hour
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
-                # Date cutoff for invoice_date (days). Default: 30 days
+                # Date cutoff for invoice_date - exactly 30 days prior (not within 30 days)
                 CUTOFF_DAYS = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
-                cutoff_date = (datetime.utcnow() - timedelta(days=CUTOFF_DAYS)).date()
+                target_date = (datetime.utcnow() - timedelta(days=CUTOFF_DAYS)).date()
                 cutoff_time = datetime.utcnow() - timedelta(days=CUTOFF_DAYS)
 
-                # Get upper bound for this run (respecting invoice_date cutoff)
+                # Get upper bound for this run (respecting exact invoice_date match)
                 max_time_rows = ch_conn.execute_query(
-                    f"SELECT max({order_time_col}) FROM {table_name} WHERE invoice_date >= %(cutoff_date)s",
-                    {"cutoff_date": cutoff_date},
+                    f"SELECT max({order_time_col}) FROM {table_name} WHERE invoice_date = %(target_date)s",
+                    {"target_date": target_date},
                 )
                 max_time = (
                     max_time_rows[0][0] if max_time_rows and max_time_rows[0] else None
@@ -276,7 +294,7 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                     while True:
                         query = (
                             f"SELECT * FROM {table_name} "
-                            f"WHERE invoice_date >= %(cutoff_date)s "
+                            f"WHERE invoice_date = %(target_date)s "
                             f"  AND {order_time_col} >= %(start_time)s "
                             f"  AND {order_time_col} < %(end_time)s "
                             f"  AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s ) "
@@ -284,7 +302,7 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                             f"LIMIT {BATCH_SIZE}"
                         )
                         parameters = {
-                            "cutoff_date": cutoff_date,
+                            "target_date": target_date,
                             "start_time": start_time,
                             "end_time": end_time,
                             "cursor_id": cursor_id,
@@ -331,17 +349,17 @@ def create_carrier_invoice_resource(ch_conn, table_name):
 
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
 
-                # Determine bounds limited by invoice_date cutoff
+                # Determine bounds limited by exact invoice_date match
                 CUTOFF_DAYS = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
-                cutoff_date = (datetime.utcnow() - timedelta(days=CUTOFF_DAYS)).date()
+                target_date = (datetime.utcnow() - timedelta(days=CUTOFF_DAYS)).date()
 
                 min_time_rows = ch_conn.execute_query(
-                    f"SELECT min({order_time_col}) FROM {table_name} WHERE invoice_date >= %(cutoff_date)s",
-                    {"cutoff_date": cutoff_date},
+                    f"SELECT min({order_time_col}) FROM {table_name} WHERE invoice_date = %(target_date)s",
+                    {"target_date": target_date},
                 )
                 max_time_rows = ch_conn.execute_query(
-                    f"SELECT max({order_time_col}) FROM {table_name} WHERE invoice_date >= %(cutoff_date)s",
-                    {"cutoff_date": cutoff_date},
+                    f"SELECT max({order_time_col}) FROM {table_name} WHERE invoice_date = %(target_date)s",
+                    {"target_date": target_date},
                 )
                 min_time = (
                     min_time_rows[0][0] if min_time_rows and min_time_rows[0] else None
@@ -362,7 +380,7 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                         while True:
                             query = (
                                 f"SELECT * FROM {table_name} "
-                                f"WHERE invoice_date >= %(cutoff_date)s "
+                                f"WHERE invoice_date = %(target_date)s "
                                 f"  AND {order_time_col} >= %(start_time)s "
                                 f"  AND {order_time_col} < %(end_time)s "
                                 f"  AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s ) "
@@ -370,7 +388,7 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                                 f"LIMIT {BATCH_SIZE}"
                             )
                             parameters = {
-                                "cutoff_date": cutoff_date,
+                                "target_date": target_date,
                                 "start_time": start_time,
                                 "end_time": end_time,
                                 "cursor_id": cursor_id,
@@ -436,6 +454,11 @@ def run_carrier_invoice_extraction(destination="duckdb", pipeline_name_suffix=""
     print("🚀 ClickHouse Carrier Invoice Data Extraction Pipeline")
     print("=" * 60)
 
+    # Show the exact target date being used
+    cutoff_days = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
+    target_date = (datetime.utcnow() - timedelta(days=cutoff_days)).date()
+    print(f"🎯 Target invoice date: {target_date} (exactly {cutoff_days} days ago)")
+
     # Create pipeline with optional suffix to avoid file locks
     pipeline_name = "carrier_invoice_extraction" + pipeline_name_suffix
     pipeline = dlt.pipeline(
@@ -491,11 +514,35 @@ def run_carrier_invoice_extraction(destination="duckdb", pipeline_name_suffix=""
             except Exception as e:
                 print(f"❌ Error analyzing carrier_invoice_data: {e}")
 
-        # Export to CSV if data was extracted successfully
+        # Close any open connections before export
         try:
-            export_to_csv(pipeline)
+            # Force close any DLT connections to avoid file locking
+            if hasattr(pipeline, "_sql_job_client") and pipeline._sql_job_client:
+                pipeline._sql_job_client.close()
+            # Add a small delay to ensure file handles are released
+            import time
+
+            time.sleep(1)
+        except Exception:
+            pass  # Ignore errors during connection cleanup
+
+        # Export to DuckDB (sole output format)
+        try:
+            export_to_duckdb(pipeline)
         except Exception as e:
-            print(f"⚠️ CSV export failed: {e}")
+            print(f"⚠️ DuckDB export failed: {e}")
+
+        # Extract tracking numbers for further processing
+        try:
+            tracking_numbers = extract_tracking_numbers_from_pipeline(pipeline)
+            if tracking_numbers:
+                print(
+                    f"✅ Successfully extracted {len(tracking_numbers)} tracking numbers"
+                )
+            else:
+                print("ℹ️ No tracking numbers found in the extracted data")
+        except Exception as e:
+            print(f"⚠️ Tracking number extraction failed: {e}")
 
         return pipeline
 
@@ -509,74 +556,197 @@ def run_carrier_invoice_extraction(destination="duckdb", pipeline_name_suffix=""
         return None
 
 
-def export_to_csv(pipeline):
+def export_to_duckdb(pipeline):
     """
-    Export the extracted carrier invoice data to CSV with timestamp-based filename
+    Export the extracted carrier invoice data to a timestamped DuckDB file.
+    This is the sole output format for all pipeline runs.
+
+    Creates a complete copy of the main DuckDB database with filename pattern:
+    carrier_invoice_tracking_exact_{YYYYMMDD}_{timestamp}.duckdb
 
     Args:
         pipeline: The DLT pipeline object
     """
     import os
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
-    import pandas as pd
-
-    print(f"\n📤 Exporting data to CSV...")
+    print("\n📤 Exporting data to DuckDB (sole output format)...")
 
     try:
         # Create output directory if it doesn't exist
         output_dir = "data/output"
         os.makedirs(output_dir, exist_ok=True)
 
-        # Generate timestamp-based filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_filename = f"carrier_invoice_data_30days_{timestamp}.csv"
-        csv_path = os.path.join(output_dir, csv_filename)
+        # Generate timestamp-based filename with exact date filtering
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        cutoff_days = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
+        target_date = (datetime.utcnow() - timedelta(days=cutoff_days)).strftime(
+            "%Y%m%d"
+        )
+        duckdb_filename = (
+            f"carrier_invoice_tracking_exact_{target_date}_{timestamp}.duckdb"
+        )
+        duckdb_path = os.path.join(output_dir, duckdb_filename)
 
-        # Query all data from DuckDB
-        with pipeline.sql_client() as client:
-            # Get row count first
-            count_result = client.execute_sql(
-                "SELECT COUNT(*) FROM carrier_invoice_data"
-            )
-            total_rows = count_result[0][0] if count_result else 0
+        # Get the source DuckDB path from the pipeline
+        source_duckdb_path = pipeline.pipeline_name + ".duckdb"
 
-            if total_rows == 0:
-                print("ℹ️ No data to export - table is empty")
-                return
+        print(f"📊 Exporting DuckDB data...")
+        print(f"📁 Source: {source_duckdb_path}")
+        print(f"📁 Target: {duckdb_path}")
 
-            print(f"📊 Exporting {total_rows:,} rows to CSV...")
+        # Create a new DuckDB file with only records matching the exact target date
+        if os.path.exists(source_duckdb_path):
+            import duckdb
 
-            # Export all data to CSV
-            # Use pandas for better CSV handling
-            query = "SELECT * FROM carrier_invoice_data ORDER BY invoice_date DESC, invoice_number"
+            # Calculate the target date for filtering
+            target_date_str = (
+                datetime.utcnow() - timedelta(days=cutoff_days)
+            ).strftime("%Y-%m-%d")
+            print(f"🎯 Filtering for exact invoice_date: {target_date_str}")
 
-            # Execute query and get results
-            rows = client.execute_sql(query)
-            columns = client.execute_sql("DESCRIBE carrier_invoice_data")
-            column_names = [col[0] for col in columns]
+            # Use a separate DuckDB connection to avoid file locking issues
+            # Create new database and copy only matching records
+            target_conn = duckdb.connect(duckdb_path)
 
-            # Create DataFrame
-            df = pd.DataFrame(rows, columns=column_names)
+            # Copy the schema and data with exact date filtering using ATTACH
+            try:
+                target_conn.execute(f"ATTACH '{source_duckdb_path}' AS source_db")
 
-            # Export to CSV
-            df.to_csv(csv_path, index=False, encoding="utf-8")
+                target_conn.execute(
+                    f"""
+                    CREATE TABLE carrier_invoice_data AS
+                    SELECT * FROM source_db.carrier_invoice_data.carrier_invoice_data
+                    WHERE invoice_date = '{target_date_str}'
+                """
+                )
 
-            print(f"✅ CSV export completed successfully!")
-            print(f"📁 File saved: {csv_path}")
-            print(f"📊 Exported {len(df):,} rows with {len(df.columns)} columns")
+                target_conn.execute("DETACH source_db")
 
-            # Show date range in exported data
-            if "invoice_date" in df.columns:
-                min_date = df["invoice_date"].min()
-                max_date = df["invoice_date"].max()
-                print(f"📅 Date range: {min_date} to {max_date}")
+            except Exception as e:
+                print(f"❌ Error during database copy: {e}")
+                # Fallback: create empty table with same structure
+                target_conn.execute(
+                    """
+                    CREATE TABLE carrier_invoice_data (
+                        version VARCHAR, recipient_number VARCHAR, account_number VARCHAR,
+                        account_country_territory VARCHAR, invoice_date VARCHAR,
+                        tracking_number VARCHAR
+                    )
+                """
+                )
+            finally:
+                target_conn.close()
+
+            # Get file size for reporting
+            file_size = os.path.getsize(duckdb_path)
+            file_size_mb = file_size / (1024 * 1024)
+
+            print(f"✅ DuckDB export completed successfully!")
+            print(f"📁 File saved: {duckdb_path}")
+            print(f"📊 File size: {file_size_mb:.1f} MB")
+
+            # Query the exported database to show statistics
+            try:
+                import duckdb
+
+                stats_conn = duckdb.connect(duckdb_path)
+
+                # Get row count
+                count_result = stats_conn.execute(
+                    "SELECT COUNT(*) FROM carrier_invoice_data"
+                ).fetchone()
+                total_rows = count_result[0] if count_result else 0
+
+                # Get date range
+                date_range_result = stats_conn.execute(
+                    "SELECT MIN(invoice_date), MAX(invoice_date) FROM carrier_invoice_data WHERE invoice_date IS NOT NULL"
+                ).fetchone()
+                if date_range_result and date_range_result[0]:
+                    min_date, max_date = date_range_result
+                    print(f"📅 Date range: {min_date} to {max_date}")
+
+                # Get tracking number statistics
+                tracking_result = stats_conn.execute(
+                    "SELECT COUNT(*), COUNT(DISTINCT tracking_number) FROM carrier_invoice_data WHERE tracking_number IS NOT NULL AND tracking_number != ''"
+                ).fetchone()
+                if tracking_result:
+                    total_tracking, unique_tracking = tracking_result
+                    print(
+                        f"📦 Tracking numbers: {total_tracking:,} total, {unique_tracking:,} unique"
+                    )
+
+                print(f"📊 Total records: {total_rows:,}")
+                stats_conn.close()
+
+            except Exception as e:
+                print(f"⚠️ Could not query statistics: {e}")
+        else:
+            print(f"❌ Source DuckDB file not found: {source_duckdb_path}")
 
     except Exception as e:
-        print(f"❌ CSV export failed: {e}")
+        print(f"❌ DuckDB export failed: {e}")
         import traceback
 
         traceback.print_exc()
+
+
+def extract_tracking_numbers_from_pipeline(pipeline):
+    """
+    Extract tracking numbers from the pipeline data for records with invoice_date exactly 30 days ago
+
+    Args:
+        pipeline: The DLT pipeline object
+
+    Returns:
+        List of unique tracking numbers
+    """
+    print("\n📦 Extracting tracking numbers from pipeline data...")
+
+    try:
+        # Query tracking numbers from DuckDB
+        with pipeline.sql_client() as client:
+            # Get tracking numbers for the target date
+            cutoff_days = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
+            target_date = (datetime.utcnow() - timedelta(days=cutoff_days)).date()
+
+            query = """
+                SELECT DISTINCT tracking_number, invoice_date, invoice_number
+                FROM carrier_invoice_data
+                WHERE tracking_number IS NOT NULL
+                AND tracking_number != ''
+                AND LENGTH(TRIM(tracking_number)) > 0
+                ORDER BY tracking_number
+            """
+
+            rows = client.execute_sql(query)
+
+            # Process results without pandas
+            if len(rows) == 0:
+                print("ℹ️ No tracking numbers found in extracted data")
+                return []
+
+            # Extract unique tracking numbers from rows
+            tracking_numbers = list(
+                set(row[0] for row in rows if row[0])
+            )  # tracking_number is first column
+
+            print(f"📊 Found {len(tracking_numbers)} unique tracking numbers")
+            print(f"🎯 Target date was: {target_date}")
+
+            # Show sample tracking numbers
+            if tracking_numbers:
+                sample_count = min(5, len(tracking_numbers))
+                print(f"📋 Sample tracking numbers: {tracking_numbers[:sample_count]}")
+
+            return tracking_numbers
+
+    except Exception as e:
+        print(f"❌ Failed to extract tracking numbers: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return []
 
 
 def query_duckdb_data(pipeline_name="carrier_invoice_extraction", limit=10):

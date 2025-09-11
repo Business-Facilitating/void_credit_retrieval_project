@@ -27,14 +27,31 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from dateutil import parser
 
-# 17Track API Configuration
-API_URL = "https://api.17track.net/track/v2.4/gettrackinfo"
-REGISTER_API_URL = "https://api.17track.net/track/v2.2/register"
-API_TOKEN = "3ED9315FC1B2FC06CB396E95FE72AB66"
-DEFAULT_CARRIER_CODE = 100002  # UPS carrier code
-BATCH_SIZE = 40  # Maximum tracking numbers per API call
-API_DELAY = 1.0  # Delay between API calls in seconds
+# 17Track API Configuration - Using environment variables
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_URL = os.getenv(
+    "SEVENTEEN_TRACK_API_URL", "https://api.17track.net/track/v2.4/gettrackinfo"
+)
+REGISTER_API_URL = os.getenv(
+    "SEVENTEEN_TRACK_REGISTER_URL", "https://api.17track.net/track/v2.2/register"
+)
+API_TOKEN = os.getenv("SEVENTEEN_TRACK_API_TOKEN")
+DEFAULT_CARRIER_CODE = int(
+    os.getenv("SEVENTEEN_TRACK_DEFAULT_CARRIER_CODE", "100002")
+)  # UPS carrier code
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "40"))  # Maximum tracking numbers per API call
+API_DELAY = float(os.getenv("API_DELAY", "1.0"))  # Delay between API calls in seconds
+
+# Validate required environment variables
+if not API_TOKEN:
+    raise ValueError(
+        "SEVENTEEN_TRACK_API_TOKEN environment variable is required. Please check your .env file."
+    )
 
 # Ensure output directory exists
 OUTPUT_DIR = "data/output"
@@ -327,6 +344,185 @@ def generate_date_range_iso(days_back: int = 7) -> Tuple[str, str]:
     return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
 
 
+def find_label_created_event(track_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Find the "label created" event from tracking information
+
+    Args:
+        track_info: Track info dictionary from 17Track API response
+
+    Returns:
+        Label created event dictionary if found, None otherwise
+    """
+    try:
+        # Check tracking providers for events
+        tracking = track_info.get("tracking", {})
+        providers = tracking.get("providers", [])
+
+        for provider in providers:
+            events = provider.get("events", [])
+
+            # Look for InfoReceived stage or label creation descriptions
+            for event in events:
+                stage = event.get("stage", "")
+                sub_status = event.get("sub_status", "")
+                description = event.get("description", "").lower()
+
+                # Check for label created indicators
+                if (
+                    stage == "InfoReceived"
+                    or sub_status == "InfoReceived"
+                    or "label" in description
+                    or "shipper created" in description
+                ):
+                    return event
+
+        # Also check milestone data for InfoReceived
+        milestone = track_info.get("milestone", [])
+        for milestone_event in milestone:
+            if milestone_event.get("key_stage") == "InfoReceived":
+                time_iso = milestone_event.get("time_iso")
+                if time_iso:
+                    return {
+                        "time_iso": time_iso,
+                        "stage": "InfoReceived",
+                        "description": "Label created (from milestone)",
+                        "sub_status": "InfoReceived",
+                    }
+
+    except Exception as e:
+        logger.warning(f"Error finding label created event: {e}")
+
+    return None
+
+
+def calculate_days_since_label_created(label_event: Dict[str, Any]) -> Optional[int]:
+    """
+    Calculate the number of days since the label was created
+
+    Args:
+        label_event: Label created event dictionary
+
+    Returns:
+        Number of days since label creation, None if unable to calculate
+    """
+    try:
+        time_iso = label_event.get("time_iso")
+        if not time_iso:
+            return None
+
+        # Parse the ISO timestamp
+        label_date = parser.parse(time_iso)
+        current_date = datetime.now(label_date.tzinfo)  # Use same timezone
+
+        # Calculate difference in days
+        days_diff = (current_date - label_date).days
+        return days_diff
+
+    except Exception as e:
+        logger.warning(f"Error calculating days since label created: {e}")
+        return None
+
+
+def analyze_tracking_for_void_candidates(
+    results: List[Dict[str, Any]], min_days: int = 15, max_days: int = 20
+) -> List[Dict[str, Any]]:
+    """
+    Analyze tracking results to find packages that need voiding
+
+    Identifies tracking numbers with "label created" status that is between
+    min_days and max_days old (inclusive).
+
+    Args:
+        results: List of tracking result dictionaries from API
+        min_days: Minimum days since label creation (default: 15)
+        max_days: Maximum days since label creation (default: 20)
+
+    Returns:
+        List of dictionaries containing tracking numbers that need voiding
+    """
+    void_candidates = []
+
+    logger.info(
+        f"🔍 Analyzing tracking results for void candidates ({min_days}-{max_days} days old)"
+    )
+
+    for batch_result in results:
+        batch_num = batch_result.get("batch_number", "unknown")
+
+        # Handle different result structures
+        tracking_result = batch_result.get("tracking_result") or batch_result.get(
+            "result", {}
+        )
+
+        if not tracking_result:
+            logger.warning(f"⚠️ No tracking result for batch {batch_num}")
+            continue
+
+        api_data = tracking_result.get("data", {})
+        accepted_items = api_data.get("accepted", [])
+
+        for item in accepted_items:
+            if not item or not isinstance(item, dict):
+                continue
+
+            tracking_number = item.get("number")
+            track_info = item.get("track_info", {})
+
+            if not tracking_number or not track_info:
+                continue
+
+            # Find label created event
+            label_event = find_label_created_event(track_info)
+
+            if not label_event:
+                logger.debug(f"📋 No label created event found for {tracking_number}")
+                continue
+
+            # Calculate days since label creation
+            days_since_label = calculate_days_since_label_created(label_event)
+
+            if days_since_label is None:
+                logger.warning(f"⚠️ Could not calculate days for {tracking_number}")
+                continue
+
+            # Check if it falls within the void candidate range
+            if min_days <= days_since_label <= max_days:
+                # Get current status for context
+                latest_status = track_info.get("latest_status", {})
+                current_status = latest_status.get("status", "unknown")
+                current_sub_status = latest_status.get("sub_status", "unknown")
+
+                void_candidate = {
+                    "tracking_number": tracking_number,
+                    "batch_number": batch_num,
+                    "days_since_label_created": days_since_label,
+                    "label_created_date": label_event.get("time_iso"),
+                    "label_event_description": label_event.get("description", ""),
+                    "current_status": current_status,
+                    "current_sub_status": current_sub_status,
+                    "void_reason": f"Label created {days_since_label} days ago",
+                    "analysis_timestamp": datetime.now().isoformat(),
+                    "needs_void": True,
+                }
+
+                void_candidates.append(void_candidate)
+
+                logger.info(
+                    f"🚨 VOID CANDIDATE: {tracking_number} - "
+                    f"Label created {days_since_label} days ago "
+                    f"(Status: {current_status})"
+                )
+            else:
+                logger.debug(
+                    f"📋 {tracking_number}: Label created {days_since_label} days ago "
+                    f"(outside {min_days}-{max_days} day range)"
+                )
+
+    logger.info(f"🎯 Found {len(void_candidates)} tracking numbers that need voiding")
+    return void_candidates
+
+
 def monitor_tracking_status_changes(
     client: TrackingClient,
     tracking_numbers: List[str],
@@ -557,12 +753,88 @@ def export_status_monitoring_summary(
     return json_path
 
 
+def export_void_candidates_to_csv(
+    void_candidates: List[Dict[str, Any]], output_filename: Optional[str] = None
+) -> str:
+    """
+    Export void candidates to CSV file
+
+    Args:
+        void_candidates: List of void candidate dictionaries
+        output_filename: Optional custom filename
+
+    Returns:
+        Path to the exported CSV file
+    """
+    if not output_filename:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"void_candidates_{timestamp}.csv"
+
+    csv_path = os.path.join(OUTPUT_DIR, output_filename)
+
+    if not void_candidates:
+        # Create empty CSV with headers
+        empty_df = pd.DataFrame(
+            columns=[
+                "tracking_number",
+                "batch_number",
+                "days_since_label_created",
+                "label_created_date",
+                "label_event_description",
+                "current_status",
+                "current_sub_status",
+                "void_reason",
+                "analysis_timestamp",
+                "needs_void",
+            ]
+        )
+        empty_df.to_csv(csv_path, index=False, encoding="utf-8")
+        logger.info(f"📊 Exported empty void candidates CSV to {csv_path}")
+        return csv_path
+
+    # Create DataFrame and export to CSV
+    df = pd.DataFrame(void_candidates)
+    df.to_csv(csv_path, index=False, encoding="utf-8")
+
+    logger.info(f"📊 Exported {len(df)} void candidates to {csv_path}")
+    return csv_path
+
+
+def export_void_candidates_to_json(
+    void_candidates: List[Dict[str, Any]], output_filename: Optional[str] = None
+) -> str:
+    """
+    Export void candidates to JSON file
+
+    Args:
+        void_candidates: List of void candidate dictionaries
+        output_filename: Optional custom filename
+
+    Returns:
+        Path to the exported JSON file
+    """
+    if not output_filename:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"void_candidates_{timestamp}.json"
+
+    json_path = os.path.join(OUTPUT_DIR, output_filename)
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(void_candidates, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"📄 Exported void candidates to {json_path}")
+    return json_path
+
+
 def demo_tracking_pipeline(
     tracking_numbers: List[str],
     api_token: Optional[str] = None,
     carrier_code: int = DEFAULT_CARRIER_CODE,
     export_json: bool = True,
     export_csv: bool = True,
+    analyze_void_candidates: bool = True,
+    void_min_days: int = 15,
+    void_max_days: int = 20,
 ) -> Optional[Dict[str, str]]:
     """
     Demo pipeline for processing manually provided tracking numbers with 17Track API
@@ -572,7 +844,8 @@ def demo_tracking_pipeline(
     2. Register tracking numbers with 17Track API
     3. Wait 5 minutes for 17Track to process the registration
     4. Retrieve tracking information for registered numbers
-    5. Export results to JSON and CSV formats
+    5. Analyze tracking status for void candidates (optional)
+    6. Export results to JSON and CSV formats
 
     Args:
         tracking_numbers: List of tracking numbers to process
@@ -580,6 +853,9 @@ def demo_tracking_pipeline(
         carrier_code: Carrier code to use
         export_json: Whether to export raw results to JSON
         export_csv: Whether to export results to CSV
+        analyze_void_candidates: Whether to analyze for packages needing voiding
+        void_min_days: Minimum days since label creation for void candidates
+        void_max_days: Maximum days since label creation for void candidates
 
     Returns:
         Dictionary with paths to exported files if successful, None otherwise
@@ -615,6 +891,27 @@ def demo_tracking_pipeline(
             f"📊 Processing complete: {successful} successful, {failed} failed batches"
         )
 
+        # Analyze for void candidates if requested
+        void_candidates = []
+        if analyze_void_candidates and results:
+            logger.info("🔍 Analyzing tracking results for void candidates...")
+            void_candidates = analyze_tracking_for_void_candidates(
+                results, void_min_days, void_max_days
+            )
+
+            if void_candidates:
+                logger.info(
+                    f"🚨 Found {len(void_candidates)} packages that need voiding!"
+                )
+                for candidate in void_candidates:
+                    logger.info(
+                        f"   • {candidate['tracking_number']}: "
+                        f"{candidate['days_since_label_created']} days old "
+                        f"({candidate['current_status']})"
+                    )
+            else:
+                logger.info("✅ No packages found that need voiding")
+
         # Export results
         exported_files = {}
 
@@ -632,6 +929,20 @@ def demo_tracking_pipeline(
                 csv_filename = f"demo_17track_consolidated_{timestamp}.csv"
                 csv_path = export_tracking_results_to_csv(results, csv_filename)
                 exported_files["csv"] = csv_path
+
+            # Export void candidates if any were found
+            if void_candidates:
+                void_csv_filename = f"demo_void_candidates_{timestamp}.csv"
+                void_csv_path = export_void_candidates_to_csv(
+                    void_candidates, void_csv_filename
+                )
+                exported_files["void_csv"] = void_csv_path
+
+                void_json_filename = f"demo_void_candidates_{timestamp}.json"
+                void_json_path = export_void_candidates_to_json(
+                    void_candidates, void_json_filename
+                )
+                exported_files["void_json"] = void_json_path
 
             logger.info("✅ Demo pipeline completed successfully!")
             if exported_files:
@@ -651,25 +962,91 @@ def demo_tracking_pipeline(
 # Demo tracking numbers for testing
 DEMO_TRACKING_NUMBERS = [
     "1ZVX23230333926007",  # UPS tracking number
-    "1ZX041680390454826",  # UPS tracking number
-    "1ZX041680392116410",  # UPS tracking number
-    "1ZX041680393993711",  # UPS tracking number
+    "1ZX041680390454826",  # UPS tracking number void
+    "1ZX041680392116410",  # UPS tracking number void
+    "1ZX041680393993711",  # UPS tracking number void
     "1ZX041680394889056",  # UPS tracking number
 ]
+
+
+def analyze_existing_tracking_data_for_voids(
+    json_file_path: str,
+    min_days: int = 15,
+    max_days: int = 20,
+    export_results: bool = True,
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Analyze existing tracking data from JSON file for void candidates
+
+    This function allows you to analyze previously collected tracking data
+    without needing to make new API calls.
+
+    Args:
+        json_file_path: Path to existing tracking results JSON file
+        min_days: Minimum days since label creation for void candidates
+        max_days: Maximum days since label creation for void candidates
+        export_results: Whether to export void candidates to files
+
+    Returns:
+        List of void candidates if found, None if error
+    """
+    try:
+        logger.info(f"📂 Loading tracking data from {json_file_path}")
+
+        with open(json_file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Handle different JSON structures
+        if isinstance(data, list):
+            results = data
+        elif isinstance(data, dict) and "results" in data:
+            results = data["results"]
+        else:
+            # Assume it's a single result
+            results = [data]
+
+        logger.info(f"📊 Analyzing {len(results)} tracking result batches")
+
+        # Analyze for void candidates
+        void_candidates = analyze_tracking_for_void_candidates(
+            results, min_days, max_days
+        )
+
+        if export_results and void_candidates:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Export void candidates
+            void_csv_path = export_void_candidates_to_csv(
+                void_candidates, f"analysis_void_candidates_{timestamp}.csv"
+            )
+            void_json_path = export_void_candidates_to_json(
+                void_candidates, f"analysis_void_candidates_{timestamp}.json"
+            )
+
+            logger.info("📄 Exported void analysis results:")
+            logger.info(f"   • CSV: {os.path.basename(void_csv_path)}")
+            logger.info(f"   • JSON: {os.path.basename(void_json_path)}")
+
+        return void_candidates
+
+    except Exception as e:
+        logger.error(f"❌ Error analyzing existing tracking data: {e}")
+        return None
 
 
 def main():
     """
     Main demo function - demonstrates the tracking pipeline with sample tracking numbers
     """
-    print("🎯 17Track API Demo")
-    print("=" * 50)
+    print("🎯 17Track API Demo with Void Analysis")
+    print("=" * 60)
     print("This demo shows the complete 17Track API workflow:")
     print("1. Register tracking numbers")
     print("2. Wait 5 minutes for processing")
     print("3. Retrieve tracking information")
-    print("4. Export to JSON and CSV")
-    print("=" * 50)
+    print("4. Analyze for packages needing voiding (15-20 days old)")
+    print("5. Export to JSON and CSV")
+    print("=" * 60)
 
     # Run demo with sample tracking numbers
     result = demo_tracking_pipeline(
@@ -678,16 +1055,24 @@ def main():
         carrier_code=DEFAULT_CARRIER_CODE,
         export_json=True,
         export_csv=True,
+        analyze_void_candidates=True,
+        void_min_days=15,
+        void_max_days=20,
     )
 
     if result:
         print("\n🎉 Demo completed successfully!")
         print("📄 Files exported:")
         for file_type, file_path in result.items():
-            print(f"   • {file_type.upper()}: {os.path.basename(file_path)}")
+            if "void" in file_type:
+                print(f"   • {file_type.upper()}: {os.path.basename(file_path)} 🚨")
+            else:
+                print(f"   • {file_type.upper()}: {os.path.basename(file_path)}")
     else:
         print("\n❌ Demo failed or no results")
 
 
 if __name__ == "__main__":
+    main()
+    main()
     main()

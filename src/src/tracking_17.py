@@ -20,6 +20,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # DuckDB integration
 try:
@@ -29,20 +33,32 @@ try:
 except ImportError:
     DUCKDB_AVAILABLE = False
 
-# 17Track API Configuration
-API_URL = "https://api.17track.net/track/v2.4/gettrackinfo"
-REGISTER_API_URL = "https://api.17track.net/track/v2.2/register"
-API_TOKEN = "3ED9315FC1B2FC06CB396E95FE72AB66"
-DEFAULT_CARRIER_CODE = 100002  # UPS carrier code
-BATCH_SIZE = 40  # Maximum tracking numbers per API call
-API_DELAY = 1.0  # Delay between API calls in seconds
+# 17Track API Configuration - Using environment variables
+API_URL = os.getenv(
+    "SEVENTEEN_TRACK_API_URL", "https://api.17track.net/track/v2.4/gettrackinfo"
+)
+REGISTER_API_URL = os.getenv(
+    "SEVENTEEN_TRACK_REGISTER_URL", "https://api.17track.net/track/v2.2/register"
+)
+API_TOKEN = os.getenv("SEVENTEEN_TRACK_API_TOKEN")
+DEFAULT_CARRIER_CODE = int(
+    os.getenv("SEVENTEEN_TRACK_DEFAULT_CARRIER_CODE", "100002")
+)  # UPS carrier code
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "40"))  # Maximum tracking numbers per API call
+API_DELAY = float(os.getenv("API_DELAY", "1.0"))  # Delay between API calls in seconds
+
+# Validate required environment variables
+if not API_TOKEN:
+    raise ValueError(
+        "SEVENTEEN_TRACK_API_TOKEN environment variable is required. Please check your .env file."
+    )
 
 # DuckDB Configuration
-DUCKDB_PATH = "carrier_invoice_extraction.duckdb"
+DUCKDB_PATH = os.getenv("DUCKDB_PATH", "carrier_invoice_extraction.duckdb")
 TABLE_NAME = "carrier_invoice_data.carrier_invoice_data"
 
 # Ensure output directory exists
-OUTPUT_DIR = "data/output"
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "data/output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Configure logging
