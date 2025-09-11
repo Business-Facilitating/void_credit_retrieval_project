@@ -77,6 +77,7 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+.augment-guidelines
 
 # IPython
 profile_default/
