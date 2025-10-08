@@ -36,10 +36,12 @@ A comprehensive data pipeline and tracking automation system for carrier invoice
 ## 🚀 Features
 
 - **Data Pipeline**: Extract carrier invoice data from ClickHouse using DLT
-- **Package Tracking**: Integration with 17Track and TrackingMore APIs
+- **85-89 Days Tracking Workflow**: Automated 2-step process to extract and track shipments from 85-89 days ago
+- **Package Tracking**: Integration with UPS Tracking API, 17Track and TrackingMore APIs
+- **UPS Web Automation**: Automated login to UPS website using Playwright
 - **Batch Processing**: Efficient handling of large datasets with configurable batch sizes
 - **Date Standardization**: Consistent date formatting across all data sources
-- **CSV Export**: Export results to CSV format for analysis
+- **CSV/JSON Export**: Export results to CSV and JSON formats for analysis
 - **Incremental Loading**: Smart incremental data loading with time-based filtering
 - **Security**: Environment variable-based credential management
 
@@ -81,6 +83,35 @@ All configuration is managed through environment variables in your `.env` file:
 
 ## 📊 Usage
 
+### 🎯 Main Workflow: 85-89 Days Tracking (Recommended)
+
+This is the primary workflow for tracking shipments from 85-89 days ago:
+
+**Step 1: Extract tracking numbers from ClickHouse**
+
+```bash
+poetry run python src/src/dlt_pipeline_examples.py
+```
+
+**Step 2A: Query UPS Tracking API (All Statuses)**
+
+```bash
+poetry run python src/src/ups_api.py
+```
+
+**Step 2B: Filter for Label-Only Tracking Numbers (Alternative)**
+
+```bash
+poetry run python src/src/ups_label_only_filter.py
+```
+
+📖 **For detailed workflow documentation:**
+
+- **Main Workflow**: [docs/WORKFLOW_85_89_DAYS.md](docs/WORKFLOW_85_89_DAYS.md)
+- **Label-Only Filter**: [docs/UPS_LABEL_ONLY_FILTER.md](docs/UPS_LABEL_ONLY_FILTER.md)
+
+---
+
 ### Data Pipeline
 
 Extract carrier invoice data from ClickHouse:
@@ -90,6 +121,12 @@ poetry run python src/src/dlt_pipeline_examples.py
 ```
 
 ### Package Tracking
+
+Track packages using UPS Tracking API:
+
+```bash
+poetry run python src/src/ups_api.py
+```
 
 Track packages using 17Track API:
 
@@ -103,6 +140,21 @@ Track packages using TrackingMore API:
 poetry run python src/src/tracking.py
 ```
 
+### UPS Web Automation
+
+Automate login to UPS website:
+
+```bash
+# Install Playwright first (one-time setup)
+poetry add playwright
+poetry run playwright install chromium
+
+# Run the automation
+poetry run python src/src/ups_web_login.py
+```
+
+See [UPS Web Login Documentation](docs/README_UPS_Web_Login.md) for detailed usage.
+
 ### Testing
 
 Run connection tests:
@@ -110,6 +162,7 @@ Run connection tests:
 ```bash
 poetry run python tests/test_clickhouse_connection.py
 poetry run python tests/test_17track_integration.py
+poetry run python tests/test_ups_web_login.py
 ```
 
 ## 📁 Project Structure
@@ -120,16 +173,19 @@ gsr_automation/
 │   ├── dlt_pipeline_examples.py   # DLT pipeline implementation
 │   ├── tracking_17.py             # 17Track API integration
 │   ├── tracking.py                # TrackingMore API integration
+│   ├── ups_web_login.py           # UPS web automation
 │   └── tracking_17_demo.py        # Demo scripts
 ├── tests/                      # Test scripts and utilities
 │   ├── setup_env.py               # Interactive environment setup
+│   ├── test_ups_web_login.py      # UPS web login tests
 │   ├── switch-git-account.ps1     # Git account switcher utility
 ├── data/                       # Data directories
 │   ├── input/                     # Input data
-│   ├── output/                    # Generated outputs
+│   ├── output/                    # Generated outputs (screenshots, etc.)
 │   └── notebooks/                 # Jupyter notebooks
 ├── docs/                       # Documentation
-│   └── SECURITY_SETUP.md          # Security setup guide
+│   ├── SECURITY_SETUP.md          # Security setup guide
+│   └── README_UPS_Web_Login.md    # UPS web automation guide
 ├── .env.example               # Environment variable template
 └── README.md                 # This file
 ```
@@ -145,6 +201,7 @@ gsr_automation/
 ## 📖 Documentation
 
 - [Security Setup Guide](docs/SECURITY_SETUP.md) - Detailed security configuration
+- [UPS Web Login](docs/README_UPS_Web_Login.md) - UPS website automation guide
 - [17Track Integration](docs/README_17Track_Integration.md) - 17Track API documentation
 - [Date Standardization](docs/DATE_STANDARDIZATION_SUMMARY.md) - Date format handling
 - [Workflow Documentation](docs/WORKFLOW_DOCUMENTATION.md) - Process workflows

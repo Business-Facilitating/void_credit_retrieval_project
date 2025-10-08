@@ -3,9 +3,13 @@
 UPS Label-Only Tracking Filter
 ==============================
 
-This script extracts tracking numbers from the DuckDB database and filters them
-to find tracking numbers that have EXCLUSIVELY the "Shipper created a label, UPS has not received the package yet."
-status in their tracking history.
+WORKFLOW: Extract tracking numbers from DLT pipeline and filter for label-only status
+
+This script is part of the data processing workflow:
+1. Run dlt_pipeline_examples.py to extract data from ClickHouse
+2. Run this script to filter for tracking numbers with ONLY label-created status
+
+Date Range: 85-89 days ago (configurable via environment variables)
 
 Filtering Criteria:
 - The tracking number should have only ONE activity record
@@ -15,13 +19,23 @@ Filtering Criteria:
 
 Usage:
     poetry run python src/src/ups_label_only_filter.py
+
+Configuration:
+    Set in .env file:
+    - DLT_TRANSACTION_START_CUTOFF_DAYS=89 (default: 89 days ago = start)
+    - DLT_TRANSACTION_END_CUTOFF_DAYS=85 (default: 85 days ago = end)
+    - This creates a 5-day window: 85-89 days ago
+
+Output:
+    - CSV: ups_label_only_tracking_range_YYYYMMDD_to_YYYYMMDD_timestamp.csv
+    - JSON: ups_label_only_filter_range_YYYYMMDD_to_YYYYMMDD_timestamp.json
 """
 
 import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import duckdb
@@ -45,16 +59,18 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "data/output")
 # UPS API Configuration - Load from environment variables
 UPS_TOKEN_URL = os.getenv("UPS_TOKEN_URL")
 UPS_TRACKING_URL = os.getenv("UPS_TRACKING_URL")
+UPS_USERNAME = os.getenv("UPS_USERNAME")
+UPS_PASSWORD = os.getenv("UPS_PASSWORD")
 
 # Validate required UPS API environment variables
 if not UPS_TOKEN_URL:
     raise ValueError("UPS_TOKEN_URL environment variable is required")
 if not UPS_TRACKING_URL:
     raise ValueError("UPS_TRACKING_URL environment variable is required")
-
-# UPS API Credentials (from existing ups_api.py)
-UPS_USERNAME = "Cs4KhQU4i8w80AHzi5UT3onZtx1CRgGUZD9wCu10LHjuL4tt"
-UPS_PASSWORD = "49yK1AvXl8JeuJCz2PHJM5D6I2ggsyTKgoFtN360fMDBnArn7vvzYUe0HHgxB6kP"
+if not UPS_USERNAME:
+    raise ValueError("UPS_USERNAME environment variable is required")
+if not UPS_PASSWORD:
+    raise ValueError("UPS_PASSWORD environment variable is required")
 
 # Target status description to filter for
 TARGET_STATUS_DESCRIPTION = (
@@ -83,56 +99,85 @@ def connect_to_duckdb() -> Optional[duckdb.DuckDBPyConnection]:
         return None
 
 
-def extract_tracking_numbers_from_duckdb(limit: int = 100) -> List[str]:
+def extract_tracking_numbers_from_duckdb(limit: int = 0) -> List[Dict[str, str]]:
     """
-    Extract unique tracking numbers from DuckDB database
+    Extract unique tracking numbers with account_number from DuckDB database with transaction_date filtering
+
+    Filters for tracking numbers where transaction_date is 85-89 days ago from today,
+    matching the same logic used in the DLT pipeline.
 
     Args:
-        limit: Maximum number of tracking numbers to return
+        limit: Maximum number of tracking numbers to return (0 = no limit, process all)
 
     Returns:
-        List of unique tracking numbers
+        List of dictionaries containing tracking_number and account_number
     """
     conn = connect_to_duckdb()
     if not conn:
         return []
 
     try:
+        # Calculate dynamic date range (same logic as DLT pipeline) - 85-89 days ago
+        start_cutoff_days = int(os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89"))
+        end_cutoff_days = int(os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85"))
+        start_target_date = (
+            datetime.utcnow() - timedelta(days=start_cutoff_days)
+        ).date()
+        end_target_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).date()
+
         logger.info(
-            f"🔍 Extracting up to {limit} tracking numbers from {TABLE_NAME}..."
+            f"🔍 Extracting tracking numbers from {TABLE_NAME} with transaction_date filtering..."
+        )
+        logger.info(
+            f"🎯 Target transaction_date range: {start_target_date} to {end_target_date} ({start_cutoff_days}-{end_cutoff_days} days ago)"
         )
 
-        # Query to get unique, non-empty tracking numbers
+        # Base query with transaction_date filtering - include account_number
+        base_where_clause = f"""
+            WHERE tracking_number IS NOT NULL
+            AND tracking_number != ''
+            AND LENGTH(TRIM(tracking_number)) > 0
+            AND tracking_number LIKE '1Z%'  -- UPS tracking numbers start with 1Z
+            AND transaction_date >= '{start_target_date}'
+            AND transaction_date <= '{end_target_date}'
+        """
+
         if limit > 0:
             query = f"""
-                SELECT DISTINCT tracking_number
+                SELECT DISTINCT tracking_number, account_number
                 FROM {TABLE_NAME}
-                WHERE tracking_number IS NOT NULL
-                AND tracking_number != ''
-                AND LENGTH(TRIM(tracking_number)) > 0
-                AND tracking_number LIKE '1Z%'  -- UPS tracking numbers start with 1Z
+                {base_where_clause}
                 ORDER BY tracking_number
                 LIMIT {limit}
             """
         else:
             # No limit - process all tracking numbers
             query = f"""
-                SELECT DISTINCT tracking_number
+                SELECT DISTINCT tracking_number, account_number
                 FROM {TABLE_NAME}
-                WHERE tracking_number IS NOT NULL
-                AND tracking_number != ''
-                AND LENGTH(TRIM(tracking_number)) > 0
-                AND tracking_number LIKE '1Z%'  -- UPS tracking numbers start with 1Z
+                {base_where_clause}
                 ORDER BY tracking_number
             """
 
         result = conn.execute(query).fetchall()
-        tracking_numbers = [row[0] for row in result]
+        tracking_numbers = [
+            {"tracking_number": row[0], "account_number": row[1]} for row in result
+        ]
 
-        logger.info(f"📊 Found {len(tracking_numbers)} unique UPS tracking numbers")
+        logger.info(
+            f"📊 Found {len(tracking_numbers)} unique UPS tracking numbers in date range"
+        )
 
         if tracking_numbers:
-            logger.info(f"📋 Sample tracking numbers: {tracking_numbers[:5]}")
+            sample_display = [
+                f"{item['tracking_number']} (Account: {item['account_number']})"
+                for item in tracking_numbers[:5]
+            ]
+            logger.info(f"📋 Sample tracking numbers: {sample_display}")
+        else:
+            logger.warning(
+                f"⚠️ No tracking numbers found for transaction_date range {start_target_date} to {end_target_date}"
+            )
 
         return tracking_numbers
 
@@ -258,12 +303,14 @@ def check_label_only_status(ups_response: Dict) -> Tuple[bool, str]:
         return False, f"Error parsing response: {e}"
 
 
-def process_tracking_numbers(tracking_numbers: List[str], access_token: str) -> Dict:
+def process_tracking_numbers(
+    tracking_numbers: List[Dict[str, str]], access_token: str
+) -> Dict:
     """
     Process tracking numbers and filter for label-only status
 
     Args:
-        tracking_numbers: List of tracking numbers to process
+        tracking_numbers: List of dictionaries containing tracking_number and account_number
         access_token: UPS API access token
 
     Returns:
@@ -281,8 +328,12 @@ def process_tracking_numbers(tracking_numbers: List[str], access_token: str) -> 
 
     logger.info(f"🔄 Processing {len(tracking_numbers)} tracking numbers...")
 
-    for i, tracking_number in enumerate(tracking_numbers, 1):
-        logger.info(f"📦 Processing {i}/{len(tracking_numbers)}: {tracking_number}")
+    for i, tracking_item in enumerate(tracking_numbers, 1):
+        tracking_number = tracking_item["tracking_number"]
+        account_number = tracking_item["account_number"]
+        logger.info(
+            f"📦 Processing {i}/{len(tracking_numbers)}: {tracking_number} (Account: {account_number})"
+        )
 
         # Query UPS API
         ups_response = query_ups_tracking(tracking_number, access_token)
@@ -290,7 +341,11 @@ def process_tracking_numbers(tracking_numbers: List[str], access_token: str) -> 
 
         if ups_response is None:
             results["api_errors"].append(
-                {"tracking_number": tracking_number, "error": "API request failed"}
+                {
+                    "tracking_number": tracking_number,
+                    "account_number": account_number,
+                    "error": "API request failed",
+                }
             )
             results["total_errors"] += 1
             continue
@@ -302,6 +357,7 @@ def process_tracking_numbers(tracking_numbers: List[str], access_token: str) -> 
             results["label_only_tracking_numbers"].append(
                 {
                     "tracking_number": tracking_number,
+                    "account_number": account_number,
                     "reason": reason,
                     "ups_response": ups_response,
                 }
@@ -312,6 +368,7 @@ def process_tracking_numbers(tracking_numbers: List[str], access_token: str) -> 
             results["excluded_tracking_numbers"].append(
                 {
                     "tracking_number": tracking_number,
+                    "account_number": account_number,
                     "reason": reason,
                     "ups_response": ups_response,
                 }
@@ -327,7 +384,7 @@ def process_tracking_numbers(tracking_numbers: List[str], access_token: str) -> 
 
 def save_results(results: Dict, timestamp: str) -> Tuple[str, str]:
     """
-    Save results to JSON and CSV files
+    Save results to JSON and CSV files with date range in filename
 
     Args:
         results: Processing results dictionary
@@ -336,20 +393,32 @@ def save_results(results: Dict, timestamp: str) -> Tuple[str, str]:
     Returns:
         Tuple of (json_filepath, csv_filepath)
     """
+    # Calculate date range for filename (same logic as DLT pipeline) - 85-89 days ago
+    start_cutoff_days = int(os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89"))
+    end_cutoff_days = int(os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85"))
+    start_date = (datetime.utcnow() - timedelta(days=start_cutoff_days)).strftime(
+        "%Y%m%d"
+    )
+    end_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).strftime("%Y%m%d")
+
     # Save complete results to JSON
-    json_filename = f"ups_label_only_filter_{timestamp}.json"
+    json_filename = (
+        f"ups_label_only_filter_range_{start_date}_to_{end_date}_{timestamp}.json"
+    )
     json_filepath = os.path.join(OUTPUT_DIR, json_filename)
 
     with open(json_filepath, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
 
     # Save filtered tracking numbers to CSV with status information
-    csv_filename = f"ups_label_only_tracking_{timestamp}.csv"
+    csv_filename = (
+        f"ups_label_only_tracking_range_{start_date}_to_{end_date}_{timestamp}.csv"
+    )
     csv_filepath = os.path.join(OUTPUT_DIR, csv_filename)
 
     with open(csv_filepath, "w", encoding="utf-8") as f:
         f.write(
-            "tracking_number,status_description,status_code,status_type,date_processed\n"
+            "tracking_number,account_number,status_description,status_code,status_type,date_processed\n"
         )
         for item in results["label_only_tracking_numbers"]:
             # Extract status information from the UPS response
@@ -379,7 +448,7 @@ def save_results(results: Dict, timestamp: str) -> Tuple[str, str]:
             status_description_escaped = status_description.replace(",", ";")
 
             f.write(
-                f"{item['tracking_number']},{status_description_escaped},{status_code},{status_type},{timestamp}\n"
+                f"{item['tracking_number']},{item['account_number']},{status_description_escaped},{status_code},{status_type},{timestamp}\n"
             )
 
     return json_filepath, csv_filepath
@@ -402,7 +471,9 @@ def print_summary(results: Dict):
     if results["label_only_tracking_numbers"]:
         logger.info("\n🎯 LABEL-ONLY TRACKING NUMBERS:")
         for item in results["label_only_tracking_numbers"]:
-            logger.info(f"   📦 {item['tracking_number']}")
+            logger.info(
+                f"   📦 {item['tracking_number']} (Account: {item['account_number']})"
+            )
 
     if results["api_errors"]:
         logger.info("\n🚫 API ERRORS:")
@@ -415,14 +486,23 @@ def main():
     logger.info("🚀 Starting UPS Label-Only Tracking Filter")
     logger.info("=" * 60)
 
+    # Show the exact target date range being used (same as DLT pipeline) - 85-89 days ago
+    start_cutoff_days = int(os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89"))
+    end_cutoff_days = int(os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85"))
+    start_target_date = (datetime.utcnow() - timedelta(days=start_cutoff_days)).date()
+    end_target_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).date()
+    logger.info(
+        f"🎯 Target transaction_date range: {start_target_date} to {end_target_date} ({start_cutoff_days}-{end_cutoff_days} days ago)"
+    )
+
     # Generate timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Extract tracking numbers from DuckDB
     logger.info("📊 Step 1: Extracting tracking numbers from DuckDB...")
     tracking_numbers = extract_tracking_numbers_from_duckdb(
-        limit=5000
-    )  # Process 5,000 tracking numbers (15% of total) - good balance
+        limit=0
+    )  # Process ALL tracking numbers in the date range (limit=0 means no limit)
 
     if not tracking_numbers:
         logger.error("❌ No tracking numbers found. Exiting.")

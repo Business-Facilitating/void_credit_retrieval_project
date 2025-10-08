@@ -35,6 +35,19 @@ The following environment variables must be set in your `.env` file:
 
 - `TRACKINGMORE_API_KEY`: Your TrackingMore API key
 
+#### UPS API Configuration
+
+- `UPS_TOKEN_URL`: UPS OAuth token endpoint (default provided)
+- `UPS_TRACKING_URL`: UPS tracking API endpoint (default provided)
+- `UPS_USERNAME`: Your UPS API username
+- `UPS_PASSWORD`: Your UPS API password
+
+#### UPS Web Login Configuration
+
+- `UPS_WEB_LOGIN_URL`: UPS website login page (default provided)
+- `UPS_WEB_USERNAME`: Your UPS website username
+- `UPS_WEB_PASSWORD`: Your UPS website password
+
 #### ClickHouse Database Configuration
 
 - `CLICKHOUSE_HOST`: Your ClickHouse server hostname
@@ -114,9 +127,13 @@ The following files have been updated to use environment variables:
 - `src/src/tracking.py`
 - `src/src/tracking_17_demo.py`
 - `src/src/dlt_pipeline_examples.py`
+- `src/src/ups_api.py`
+- `src/src/ups_web_login.py`
+- `src/src/ups_label_only_filter.py`
 - `tests/test_clickhouse_connection.py`
 - `tests/clickhouse_http_client.py`
 - `tests/test_clickhouse_advanced.py`
+- `tests/test_ups_web_login.py`
 
 ## Troubleshooting
 
