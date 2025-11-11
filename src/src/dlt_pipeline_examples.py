@@ -3,8 +3,32 @@
 ClickHouse to DuckDB Data Pipeline
 =================================
 
-Simplified pipeline for extracting carrier invoice data from ClickHouse
-and loading it into DuckDB for local analysis.
+WORKFLOW STEP 1 of 2: Extract tracking numbers from ClickHouse
+
+This script is part of a 2-step workflow:
+1. Run this script (dlt_pipeline_examples.py) to extract data from ClickHouse
+   - Filters by transaction_date: 85-89 days ago (configurable)
+   - Extracts tracking numbers from carrier_carrier_invoice_original_flat_ups table
+   - Creates DuckDB file: data/output/carrier_invoice_extraction.duckdb
+
+2. Run ups_api.py to query UPS Tracking API
+   - Reads tracking numbers from the DuckDB file created in Step 1
+   - Queries UPS API for current status
+
+Example:
+    # Step 1: Extract data (85-89 days ago)
+    poetry run python src/src/dlt_pipeline_examples.py
+
+    # Step 2: Query UPS API
+    poetry run python src/src/ups_api.py
+
+Configuration:
+    Set in .env file:
+    - DLT_PIPELINE_START_DAYS=89 (default: 89 days ago)
+    - DLT_PIPELINE_END_DAYS=85 (default: 85 days ago)
+
+Output:
+    - DuckDB: data/output/carrier_invoice_extraction.duckdb
 
 Author: Gabriel Jerdhy Lapuz
 Project: gsr_automation
@@ -85,6 +109,11 @@ class ClickHouseConnection:
             return False
 
         try:
+            # Disable SSL warnings for ClickHouse Cloud connections
+            import urllib3
+
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
             self.client = clickhouse_connect.get_client(
                 host=self.host,
                 port=self.port,
@@ -94,7 +123,7 @@ class ClickHouseConnection:
                 secure=self.secure,
                 connect_timeout=60,
                 send_receive_timeout=300,
-                verify=False,  # Disable SSL verification for cloud connections
+                verify=False,  # Disable SSL verification for Windows compatibility
             )
 
             # Test connection
@@ -269,15 +298,24 @@ def create_carrier_invoice_resource(ch_conn, table_name):
 
                 # Window configuration (seconds). Default: 1 hour
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
-                # Date cutoff for invoice_date - exactly 30 days prior (not within 30 days)
-                CUTOFF_DAYS = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
-                target_date = (datetime.utcnow() - timedelta(days=CUTOFF_DAYS)).date()
-                cutoff_time = datetime.utcnow() - timedelta(days=CUTOFF_DAYS)
+                # Date range for transaction_date - 85-89 days prior (5-day window)
+                START_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+                END_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+                start_target_date = (
+                    datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
+                ).date()
+                end_target_date = (
+                    datetime.utcnow() - timedelta(days=END_CUTOFF_DAYS)
+                ).date()
+                cutoff_time = datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
 
-                # Get upper bound for this run (respecting exact invoice_date match)
+                # Get upper bound for this run (respecting transaction_date range)
                 max_time_rows = ch_conn.execute_query(
-                    f"SELECT max({order_time_col}) FROM {table_name} WHERE invoice_date = %(target_date)s",
-                    {"target_date": target_date},
+                    f"SELECT max({order_time_col}) FROM {table_name} WHERE transaction_date >= %(start_target_date)s AND transaction_date <= %(end_target_date)s",
+                    {
+                        "start_target_date": start_target_date,
+                        "end_target_date": end_target_date,
+                    },
                 )
                 max_time = (
                     max_time_rows[0][0] if max_time_rows and max_time_rows[0] else None
@@ -294,7 +332,8 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                     while True:
                         query = (
                             f"SELECT * FROM {table_name} "
-                            f"WHERE invoice_date = %(target_date)s "
+                            f"WHERE transaction_date >= %(start_target_date)s "
+                            f"  AND transaction_date <= %(end_target_date)s "
                             f"  AND {order_time_col} >= %(start_time)s "
                             f"  AND {order_time_col} < %(end_time)s "
                             f"  AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s ) "
@@ -302,7 +341,8 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                             f"LIMIT {BATCH_SIZE}"
                         )
                         parameters = {
-                            "target_date": target_date,
+                            "start_target_date": start_target_date,
+                            "end_target_date": end_target_date,
                             "start_time": start_time,
                             "end_time": end_time,
                             "cursor_id": cursor_id,
@@ -349,17 +389,29 @@ def create_carrier_invoice_resource(ch_conn, table_name):
 
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
 
-                # Determine bounds limited by exact invoice_date match
-                CUTOFF_DAYS = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
-                target_date = (datetime.utcnow() - timedelta(days=CUTOFF_DAYS)).date()
+                # Determine bounds limited by transaction_date range (85-89 days ago)
+                START_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+                END_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+                start_target_date = (
+                    datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
+                ).date()
+                end_target_date = (
+                    datetime.utcnow() - timedelta(days=END_CUTOFF_DAYS)
+                ).date()
 
                 min_time_rows = ch_conn.execute_query(
-                    f"SELECT min({order_time_col}) FROM {table_name} WHERE invoice_date = %(target_date)s",
-                    {"target_date": target_date},
+                    f"SELECT min({order_time_col}) FROM {table_name} WHERE transaction_date >= %(start_target_date)s AND transaction_date <= %(end_target_date)s",
+                    {
+                        "start_target_date": start_target_date,
+                        "end_target_date": end_target_date,
+                    },
                 )
                 max_time_rows = ch_conn.execute_query(
-                    f"SELECT max({order_time_col}) FROM {table_name} WHERE invoice_date = %(target_date)s",
-                    {"target_date": target_date},
+                    f"SELECT max({order_time_col}) FROM {table_name} WHERE transaction_date >= %(start_target_date)s AND transaction_date <= %(end_target_date)s",
+                    {
+                        "start_target_date": start_target_date,
+                        "end_target_date": end_target_date,
+                    },
                 )
                 min_time = (
                     min_time_rows[0][0] if min_time_rows and min_time_rows[0] else None
@@ -380,7 +432,8 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                         while True:
                             query = (
                                 f"SELECT * FROM {table_name} "
-                                f"WHERE invoice_date = %(target_date)s "
+                                f"WHERE transaction_date >= %(start_target_date)s "
+                                f"  AND transaction_date <= %(end_target_date)s "
                                 f"  AND {order_time_col} >= %(start_time)s "
                                 f"  AND {order_time_col} < %(end_time)s "
                                 f"  AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s ) "
@@ -388,7 +441,8 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                                 f"LIMIT {BATCH_SIZE}"
                             )
                             parameters = {
-                                "target_date": target_date,
+                                "start_target_date": start_target_date,
+                                "end_target_date": end_target_date,
                                 "start_time": start_time,
                                 "end_time": end_time,
                                 "cursor_id": cursor_id,
@@ -454,10 +508,14 @@ def run_carrier_invoice_extraction(destination="duckdb", pipeline_name_suffix=""
     print("🚀 ClickHouse Carrier Invoice Data Extraction Pipeline")
     print("=" * 60)
 
-    # Show the exact target date being used
-    cutoff_days = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
-    target_date = (datetime.utcnow() - timedelta(days=cutoff_days)).date()
-    print(f"🎯 Target invoice date: {target_date} (exactly {cutoff_days} days ago)")
+    # Show the exact target date range being used
+    start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+    end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+    start_target_date = (datetime.utcnow() - timedelta(days=start_cutoff_days)).date()
+    end_target_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).date()
+    print(
+        f"🎯 Target transaction date range: {start_target_date} to {end_target_date} ({start_cutoff_days}-{end_cutoff_days} days ago)"
+    )
 
     # Create pipeline with optional suffix to avoid file locks
     pipeline_name = "carrier_invoice_extraction" + pipeline_name_suffix
@@ -558,11 +616,11 @@ def run_carrier_invoice_extraction(destination="duckdb", pipeline_name_suffix=""
 
 def export_to_duckdb(pipeline):
     """
-    Export the extracted carrier invoice data to a timestamped DuckDB file.
+    Export the extracted carrier invoice data to a single DuckDB file.
     This is the sole output format for all pipeline runs.
 
-    Creates a complete copy of the main DuckDB database with filename pattern:
-    carrier_invoice_tracking_exact_{YYYYMMDD}_{timestamp}.duckdb
+    Creates a complete copy of the main DuckDB database with fixed filename:
+    carrier_invoice_extraction.duckdb (replaces existing file each run)
 
     Args:
         pipeline: The DLT pipeline object
@@ -577,15 +635,8 @@ def export_to_duckdb(pipeline):
         output_dir = "data/output"
         os.makedirs(output_dir, exist_ok=True)
 
-        # Generate timestamp-based filename with exact date filtering
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        cutoff_days = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
-        target_date = (datetime.utcnow() - timedelta(days=cutoff_days)).strftime(
-            "%Y%m%d"
-        )
-        duckdb_filename = (
-            f"carrier_invoice_tracking_exact_{target_date}_{timestamp}.duckdb"
-        )
+        # Use fixed filename (no versioning/timestamps)
+        duckdb_filename = "carrier_invoice_extraction.duckdb"
         duckdb_path = os.path.join(output_dir, duckdb_filename)
 
         # Get the source DuckDB path from the pipeline
@@ -599,17 +650,24 @@ def export_to_duckdb(pipeline):
         if os.path.exists(source_duckdb_path):
             import duckdb
 
-            # Calculate the target date for filtering
-            target_date_str = (
-                datetime.utcnow() - timedelta(days=cutoff_days)
+            # Calculate the target date range for filtering
+            start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+            end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+            start_date_str = (
+                datetime.utcnow() - timedelta(days=start_cutoff_days)
             ).strftime("%Y-%m-%d")
-            print(f"🎯 Filtering for exact invoice_date: {target_date_str}")
+            end_date_str = (
+                datetime.utcnow() - timedelta(days=end_cutoff_days)
+            ).strftime("%Y-%m-%d")
+            print(
+                f"🎯 Filtering for transaction_date range: {start_date_str} to {end_date_str}"
+            )
 
             # Use a separate DuckDB connection to avoid file locking issues
             # Create new database and copy only matching records
             target_conn = duckdb.connect(duckdb_path)
 
-            # Copy the schema and data with exact date filtering using ATTACH
+            # Copy the schema and data with transaction date range filtering using ATTACH
             try:
                 target_conn.execute(f"ATTACH '{source_duckdb_path}' AS source_db")
 
@@ -617,7 +675,7 @@ def export_to_duckdb(pipeline):
                     f"""
                     CREATE TABLE carrier_invoice_data AS
                     SELECT * FROM source_db.carrier_invoice_data.carrier_invoice_data
-                    WHERE invoice_date = '{target_date_str}'
+                    WHERE transaction_date >= '{start_date_str}' AND transaction_date <= '{end_date_str}'
                 """
                 )
 
@@ -658,13 +716,13 @@ def export_to_duckdb(pipeline):
                 ).fetchone()
                 total_rows = count_result[0] if count_result else 0
 
-                # Get date range
+                # Get transaction date range
                 date_range_result = stats_conn.execute(
-                    "SELECT MIN(invoice_date), MAX(invoice_date) FROM carrier_invoice_data WHERE invoice_date IS NOT NULL"
+                    "SELECT MIN(transaction_date), MAX(transaction_date) FROM carrier_invoice_data WHERE transaction_date IS NOT NULL"
                 ).fetchone()
                 if date_range_result and date_range_result[0]:
                     min_date, max_date = date_range_result
-                    print(f"📅 Date range: {min_date} to {max_date}")
+                    print(f"📅 Transaction date range: {min_date} to {max_date}")
 
                 # Get tracking number statistics
                 tracking_result = stats_conn.execute(
@@ -693,7 +751,7 @@ def export_to_duckdb(pipeline):
 
 def extract_tracking_numbers_from_pipeline(pipeline):
     """
-    Extract tracking numbers from the pipeline data for records with invoice_date exactly 30 days ago
+    Extract tracking numbers from the pipeline data for records with transaction_date in the 85-89 days ago range
 
     Args:
         pipeline: The DLT pipeline object
@@ -706,12 +764,18 @@ def extract_tracking_numbers_from_pipeline(pipeline):
     try:
         # Query tracking numbers from DuckDB
         with pipeline.sql_client() as client:
-            # Get tracking numbers for the target date
-            cutoff_days = int(os.getenv("DLT_INVOICE_CUTOFF_DAYS", "30"))
-            target_date = (datetime.utcnow() - timedelta(days=cutoff_days)).date()
+            # Get tracking numbers for the target date range
+            start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+            end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+            start_target_date = (
+                datetime.utcnow() - timedelta(days=start_cutoff_days)
+            ).date()
+            end_target_date = (
+                datetime.utcnow() - timedelta(days=end_cutoff_days)
+            ).date()
 
             query = """
-                SELECT DISTINCT tracking_number, invoice_date, invoice_number
+                SELECT DISTINCT tracking_number, transaction_date, invoice_number
                 FROM carrier_invoice_data
                 WHERE tracking_number IS NOT NULL
                 AND tracking_number != ''
@@ -732,7 +796,7 @@ def extract_tracking_numbers_from_pipeline(pipeline):
             )  # tracking_number is first column
 
             print(f"📊 Found {len(tracking_numbers)} unique tracking numbers")
-            print(f"🎯 Target date was: {target_date}")
+            print(f"🎯 Target date range was: {start_target_date} to {end_target_date}")
 
             # Show sample tracking numbers
             if tracking_numbers:
@@ -810,6 +874,8 @@ if __name__ == "__main__":
         print("\n2. Querying extracted data...")
         query_duckdb_data(limit=5)
 
+    print("\n✅ Pipeline execution completed!")
+    print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")

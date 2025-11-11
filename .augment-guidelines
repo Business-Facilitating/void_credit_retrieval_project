@@ -10,6 +10,8 @@ Efficiently assist users in developing code, and proactively solve problems whil
 - Optimizing code
 - Debugging and problem solving
   Ensure all solutions are clear, understandable, and logically rigorous.
+- Make sure all code is well documented and follow SOLID and DRY principle.
+- Choose best design pattern for each project or problem we are working on.
 
 ---
 
