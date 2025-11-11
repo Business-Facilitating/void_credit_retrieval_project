@@ -14,6 +14,10 @@ Features:
 - Screenshot capture on errors
 - Session persistence support
 - Configurable timeouts and retries
+- Bulk void shipments from CSV with account mapping
+- Automatic shipping history filter configuration:
+  * Set results per page to 50
+  * Set date range to match ups_label_only_filter.py (85-89 days ago)
 
 Security:
 - Credentials loaded from .env file (never hardcoded)
@@ -24,13 +28,15 @@ Author: Gabriel Jerdhy Lapuz
 Project: gsr_automation
 """
 
+import csv
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+import duckdb
 from dotenv import load_dotenv
 from playwright.sync_api import Browser, BrowserContext, Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -64,6 +70,179 @@ if not UPS_WEB_PASSWORD:
 # Browser configuration
 DEFAULT_TIMEOUT = 30000  # 30 seconds in milliseconds
 DEFAULT_NAVIGATION_TIMEOUT = 60000  # 60 seconds for page loads
+
+# PeerDB Configuration
+PEERDB_DUCKDB_PATH = os.getenv(
+    "PEERDB_DUCKDB_PATH", "peerdb_industry_index_logins.duckdb"
+)
+PEERDB_TABLE_NAME = "peerdb_data.industry_index_logins"
+
+
+# Helper Functions for Data Loading
+def load_tracking_numbers_from_csv(csv_path: str) -> List[Dict[str, str]]:
+    """
+    Load tracking numbers and account numbers from ups_label_only_filter.py output CSV
+
+    Args:
+        csv_path: Path to the CSV file containing tracking numbers
+
+    Returns:
+        List of dictionaries with tracking_number and account_number
+    """
+    tracking_data = []
+
+    try:
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                tracking_data.append(
+                    {
+                        "tracking_number": row["tracking_number"],
+                        "account_number": row["account_number"],
+                    }
+                )
+
+        logger.info(
+            f"✅ Loaded {len(tracking_data)} tracking numbers from CSV: {csv_path}"
+        )
+        return tracking_data
+
+    except Exception as e:
+        logger.error(f"❌ Failed to load tracking numbers from CSV: {e}")
+        return []
+
+
+def load_login_credentials_from_peerdb(
+    duckdb_path: str = PEERDB_DUCKDB_PATH,
+) -> Dict[str, Dict[str, str]]:
+    """
+    Load UPS login credentials from PeerDB industry_index_logins table
+
+    Maps account_number (last 6 digits) to login credentials.
+    Uses the formula: industry_index_login.account_number = RIGHT(carrier_invoice.account_number, 6)
+
+    Note: The table uses carrier_login for username and carrier_password for password.
+
+    Args:
+        duckdb_path: Path to the PeerDB DuckDB file
+
+    Returns:
+        Dictionary mapping account_number (last 6 digits) to credentials:
+        {
+            "123456": {
+                "username": "user@example.com",  # from carrier_login column
+                "password": "password123",        # from carrier_password column
+                "account_number": "123456",
+                "account_type": "UPS Primary Login"
+            }
+        }
+    """
+    credentials_map = {}
+
+    try:
+        if not os.path.exists(duckdb_path):
+            logger.error(f"❌ PeerDB DuckDB file not found: {duckdb_path}")
+            logger.info("💡 Run peerdb_pipeline.py first to extract login credentials")
+            return {}
+
+        conn = duckdb.connect(duckdb_path, read_only=True)
+
+        # Query to get login credentials
+        # Note: carrier_login column contains the username, carrier_password contains the password
+        # We get all Primary BFS Login accounts (these are the main UPS account logins)
+        query = f"""
+            SELECT
+                account_number,
+                account_type,
+                carrier_login,
+                carrier_password
+            FROM {PEERDB_TABLE_NAME}
+            WHERE account_type LIKE '%Primary%'
+            AND account_number IS NOT NULL
+            AND carrier_login IS NOT NULL
+            AND carrier_password IS NOT NULL
+        """
+
+        result = conn.execute(query).fetchall()
+        conn.close()
+
+        # Build credentials map using account_number as key
+        for row in result:
+            account_number = str(row[0]).strip()
+            credentials_map[account_number] = {
+                "account_number": account_number,
+                "account_type": row[1],
+                "username": row[2],  # carrier_login is the username
+                "password": row[3],  # carrier_password is the password
+            }
+
+        logger.info(
+            f"✅ Loaded {len(credentials_map)} UPS login credentials from PeerDB"
+        )
+        logger.info(
+            f"📋 Account numbers available: {list(credentials_map.keys())[:5]}..."
+        )
+
+        return credentials_map
+
+    except Exception as e:
+        logger.error(f"❌ Failed to load credentials from PeerDB: {e}")
+        return {}
+
+
+def map_tracking_to_credentials(
+    tracking_data: List[Dict[str, str]], credentials_map: Dict[str, Dict[str, str]]
+) -> List[Dict[str, Any]]:
+    """
+    Map tracking numbers to their corresponding login credentials
+
+    Uses the formula: industry_index_login.account_number = RIGHT(carrier_invoice.account_number, 6)
+
+    Args:
+        tracking_data: List of tracking numbers with account_numbers
+        credentials_map: Dictionary mapping account_number (last 6 digits) to credentials
+
+    Returns:
+        List of dictionaries with tracking_number, account_number, and credentials
+    """
+    mapped_data = []
+
+    for item in tracking_data:
+        tracking_number = item["tracking_number"]
+        full_account_number = item["account_number"]
+
+        # Extract last 6 digits of account number to match with industry_index_logins
+        last_6_digits = str(full_account_number)[-6:] if full_account_number else None
+
+        if not last_6_digits:
+            logger.warning(f"⚠️ No account number for tracking {tracking_number}")
+            continue
+
+        # Look up credentials using last 6 digits
+        credentials = credentials_map.get(last_6_digits)
+
+        if credentials:
+            mapped_data.append(
+                {
+                    "tracking_number": tracking_number,
+                    "full_account_number": full_account_number,
+                    "account_number_key": last_6_digits,
+                    "username": credentials["username"],
+                    "password": credentials["password"],
+                    "account_type": credentials["account_type"],
+                }
+            )
+            logger.debug(f"✅ Mapped {tracking_number} → Account {last_6_digits}")
+        else:
+            logger.warning(
+                f"⚠️ No credentials found for account {last_6_digits} (tracking: {tracking_number})"
+            )
+
+    logger.info(
+        f"✅ Successfully mapped {len(mapped_data)}/{len(tracking_data)} tracking numbers to credentials"
+    )
+
+    return mapped_data
 
 
 class UPSWebLoginAutomation:
@@ -363,13 +542,14 @@ class UPSWebLoginAutomation:
         return result
 
     def navigate_to_shipping_history(
-        self, save_screenshots: bool = True
+        self, save_screenshots: bool = True, configure_filters: bool = True
     ) -> Dict[str, Any]:
         """
         Navigate to Shipping History page after successful login
 
         Args:
             save_screenshots: Whether to save screenshots during navigation
+            configure_filters: Whether to automatically configure filters (results per page and date range)
 
         Returns:
             Dictionary containing navigation result with keys:
@@ -377,8 +557,15 @@ class UPSWebLoginAutomation:
             - message: str describing the result
             - url: str of final URL
             - screenshot: str path to screenshot (if saved)
+            - filter_config: dict with filter configuration results (if configure_filters=True)
         """
-        result = {"success": False, "message": "", "url": "", "screenshot": ""}
+        result = {
+            "success": False,
+            "message": "",
+            "url": "",
+            "screenshot": "",
+            "filter_config": None,
+        }
 
         try:
             logger.info("🚢 Navigating to Shipping History...")
@@ -547,6 +734,23 @@ class UPSWebLoginAutomation:
                 result["success"] = True
                 result["message"] = "Successfully navigated to Shipping History"
                 logger.info(f"✅ Shipping History page loaded! URL: {current_url}")
+
+                # Configure filters if requested
+                if configure_filters:
+                    logger.info("⚙️ Configuring shipping history filters...")
+                    filter_result = self.configure_shipping_history_filters(
+                        save_screenshots=save_screenshots
+                    )
+                    result["filter_config"] = filter_result
+
+                    if filter_result["success"]:
+                        result[
+                            "message"
+                        ] += f" | Filters configured: {filter_result['date_range']}, 50 results/page"
+                    else:
+                        logger.warning(
+                            f"⚠️ Filter configuration had issues: {filter_result['message']}"
+                        )
             else:
                 result["success"] = False
                 result["message"] = f"Navigation unclear. Current URL: {current_url}"
@@ -564,6 +768,430 @@ class UPSWebLoginAutomation:
             if save_screenshots:
                 result["screenshot"] = self.save_screenshot(
                     "error_navigation_exception"
+                )
+
+        return result
+
+    def configure_shipping_history_filters(
+        self, save_screenshots: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Configure Shipping History page filters:
+        1. Set results per page to 50
+        2. Set date range to match ups_label_only_filter.py (85-89 days ago)
+
+        Args:
+            save_screenshots: Whether to save screenshots during configuration
+
+        Returns:
+            Dictionary containing configuration result with keys:
+            - success: bool indicating if configuration was successful
+            - message: str describing the result
+            - date_range: str showing the configured date range
+            - screenshot: str path to screenshot (if saved)
+        """
+        result = {
+            "success": False,
+            "message": "",
+            "date_range": "",
+            "screenshot": "",
+        }
+
+        try:
+            logger.info("⚙️ Configuring Shipping History filters...")
+
+            # Wait for page to be ready
+            self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+            self.page.wait_for_timeout(3000)
+
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot("08_before_filter_config")
+
+            # Calculate date range (same logic as ups_label_only_filter.py)
+            # Note: UPS minimum date range is 90 days ago, so we use 89-85 days ago
+            start_cutoff_days = int(
+                os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89")
+            )
+            end_cutoff_days = int(os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85"))
+            start_date = datetime.utcnow() - timedelta(days=start_cutoff_days)
+            end_date = datetime.utcnow() - timedelta(days=end_cutoff_days)
+
+            # Format dates for UPS date inputs (MM/DD/YYYY format with slashes)
+            start_date_str = start_date.strftime("%m/%d/%Y")
+            end_date_str = end_date.strftime("%m/%d/%Y")
+            result["date_range"] = f"{start_date_str} to {end_date_str}"
+
+            logger.info(
+                f"📅 Target date range: {start_date_str} to {end_date_str} ({start_cutoff_days}-{end_cutoff_days} days ago)"
+            )
+
+            # STEP 1: Change results per page to 50
+            logger.info("📊 Step 1: Setting results per page to 50...")
+
+            # Look for results per page dropdown/selector
+            results_per_page_selectors = [
+                'select[name*="pageSize"]',
+                'select[name*="perPage"]',
+                'select[name*="results"]',
+                'select[aria-label*="results"]',
+                'select[aria-label*="per page"]',
+                'select[id*="pageSize"]',
+                'select[id*="perPage"]',
+                'button:has-text("results per page")',
+                'button:has-text("Show")',
+            ]
+
+            results_selector = None
+            for selector in results_per_page_selectors:
+                try:
+                    results_selector = self.page.wait_for_selector(
+                        selector, timeout=3000
+                    )
+                    if results_selector and results_selector.is_visible():
+                        logger.info(f"✅ Found results per page selector: {selector}")
+                        break
+                except:
+                    continue
+
+            if results_selector:
+                # Check if it's a select element or button
+                tag_name = results_selector.evaluate("el => el.tagName.toLowerCase()")
+
+                if tag_name == "select":
+                    # It's a dropdown - select the option with value 50
+                    logger.info("🖱️ Selecting 50 results per page...")
+                    results_selector.select_option(value="50")
+                    logger.info("✅ Set results per page to 50")
+                elif tag_name == "button":
+                    # It's a button - click it to open menu
+                    logger.info("🖱️ Clicking results per page button...")
+                    results_selector.click()
+                    self.page.wait_for_timeout(1000)
+
+                    # Look for option with 50
+                    option_selectors = [
+                        'li:has-text("50")',
+                        'a:has-text("50")',
+                        'button:has-text("50")',
+                        '[role="option"]:has-text("50")',
+                    ]
+
+                    for opt_selector in option_selectors:
+                        try:
+                            option = self.page.wait_for_selector(
+                                opt_selector, timeout=2000
+                            )
+                            if option and option.is_visible():
+                                logger.info("🖱️ Clicking 50 option...")
+                                option.click()
+                                logger.info("✅ Set results per page to 50")
+                                break
+                        except:
+                            continue
+
+                self.page.wait_for_timeout(2000)
+
+                if save_screenshots:
+                    result["screenshot"] = self.save_screenshot(
+                        "09_results_per_page_set"
+                    )
+            else:
+                logger.warning(
+                    "⚠️ Could not find results per page selector - may not be available on this page"
+                )
+
+            # STEP 2: Set date range
+            logger.info("📅 Step 2: Setting date range...")
+
+            # Step 2a: Click the "Modify" button
+            logger.info('📅 Step 2a: Clicking "Modify" button...')
+            modify_button_selectors = [
+                'button:has-text("Modify")',
+                'a:has-text("Modify")',
+                'button:has-text("modify")',
+                'a:has-text("modify")',
+                '[aria-label*="modify"]',
+                '[aria-label*="Modify"]',
+            ]
+
+            modify_button_clicked = False
+            for selector in modify_button_selectors:
+                try:
+                    modify_button = self.page.wait_for_selector(selector, timeout=2000)
+                    if modify_button and modify_button.is_visible():
+                        logger.info(f"✅ Found Modify button: {selector}")
+                        modify_button.click()
+                        logger.info("🖱️ Clicked Modify button")
+                        self.page.wait_for_timeout(2000)
+                        modify_button_clicked = True
+
+                        if save_screenshots:
+                            result["screenshot"] = self.save_screenshot(
+                                "09b_modify_button_clicked"
+                            )
+                        break
+                except:
+                    continue
+
+            if not modify_button_clicked:
+                logger.warning("⚠️ Could not find Modify button")
+                result["success"] = False
+                result["message"] = "Could not find Modify button"
+                return result
+
+            # Step 2b: Find "Show my activity for" dropdown
+            logger.info('📅 Step 2b: Finding "Show my activity for" dropdown...')
+
+            # Try to find any select elements on the page
+            activity_dropdown_selectors = [
+                "select",  # Try any select element first
+                'select[name*="activity"]',
+                'select[id*="activity"]',
+                'select[name*="dateRange"]',
+                'select[id*="dateRange"]',
+                'select[name*="period"]',
+                'select[id*="period"]',
+                'select[name*="time"]',
+                'select[id*="time"]',
+            ]
+
+            activity_dropdown = None
+            for selector in activity_dropdown_selectors:
+                try:
+                    # Get all matching selects
+                    selects = self.page.locator(selector).all()
+                    logger.info(
+                        f"🔍 Found {len(selects)} select element(s) with selector: {selector}"
+                    )
+
+                    for select in selects:
+                        if select.is_visible():
+                            # Log the select element's attributes for debugging
+                            try:
+                                name_attr = select.get_attribute("name") or ""
+                                id_attr = select.get_attribute("id") or ""
+                                logger.info(
+                                    f"   📋 Select found - name: '{name_attr}', id: '{id_attr}'"
+                                )
+
+                                # Use the first visible select element
+                                if not activity_dropdown:
+                                    activity_dropdown = select
+                                    logger.info(f"✅ Using select element: {selector}")
+                            except:
+                                continue
+
+                    if activity_dropdown:
+                        break
+                except Exception as e:
+                    logger.info(f"   ⚠️ Error with selector {selector}: {str(e)}")
+                    continue
+
+            if not activity_dropdown:
+                logger.warning("⚠️ Could not find any dropdown after clicking Modify")
+                result["success"] = False
+                result["message"] = "Could not find dropdown after clicking Modify"
+                return result
+
+            # Step 2c: Select "Custom Date Range" option
+            logger.info('📅 Step 2c: Selecting "Custom Date Range"...')
+            try:
+                # Try to select by visible text
+                custom_range_options = [
+                    "Custom Date Range",
+                    "custom date range",
+                    "Custom",
+                    "custom",
+                ]
+
+                custom_selected = False
+                for option_text in custom_range_options:
+                    try:
+                        activity_dropdown.select_option(label=option_text)
+                        logger.info(f'✅ Selected "{option_text}" from dropdown')
+                        custom_selected = True
+                        self.page.wait_for_timeout(
+                            2000
+                        )  # Wait for date inputs to appear
+
+                        if save_screenshots:
+                            result["screenshot"] = self.save_screenshot(
+                                "09c_custom_date_selected"
+                            )
+                        break
+                    except Exception as e:
+                        continue
+
+                if not custom_selected:
+                    logger.warning('⚠️ Could not select "Custom Date Range" option')
+                    result["success"] = False
+                    result["message"] = 'Could not select "Custom Date Range" option'
+                    return result
+
+            except Exception as e:
+                logger.warning(f"⚠️ Error selecting custom date range: {str(e)}")
+                result["success"] = False
+                result["message"] = f"Error selecting custom date range: {str(e)}"
+                return result
+
+            # Look for date range inputs
+            # Common patterns: from/to date, start/end date
+            date_input_selectors = [
+                'input[type="date"]',
+                'input[name*="from"]',
+                'input[name*="start"]',
+                'input[name*="From"]',
+                'input[name*="Start"]',
+                'input[placeholder*="From"]',
+                'input[placeholder*="Start"]',
+                'input[placeholder*="from"]',
+                'input[placeholder*="start"]',
+                'input[aria-label*="from"]',
+                'input[aria-label*="start"]',
+                'input[aria-label*="From"]',
+                'input[aria-label*="Start"]',
+            ]
+
+            # Find "from" date input
+            from_date_input = None
+            for selector in date_input_selectors:
+                try:
+                    from_date_input = self.page.wait_for_selector(
+                        selector, timeout=3000
+                    )
+                    if from_date_input and from_date_input.is_visible():
+                        logger.info(f"✅ Found 'from' date input: {selector}")
+                        break
+                except:
+                    continue
+
+            if from_date_input:
+                # Fill in start date
+                # UPS uses MM/DD/YYYY format (with slashes)
+                logger.info(f"📅 Setting start date to: {start_date_str}")
+
+                # Clear existing value first
+                from_date_input.click()
+                from_date_input.fill("")
+
+                # Fill with MM/DD/YYYY format
+                from_date_input.fill(start_date_str)
+                logger.info(f"✅ Set start date to {start_date_str}")
+
+                self.page.wait_for_timeout(1000)
+
+                if save_screenshots:
+                    result["screenshot"] = self.save_screenshot("10_start_date_set")
+
+                # Find "to" date input
+                to_date_selectors = [
+                    'input[type="date"]:not([name*="from"]):not([name*="start"])',
+                    'input[name*="to"]',
+                    'input[name*="end"]',
+                    'input[placeholder*="To"]',
+                    'input[placeholder*="End"]',
+                    'input[aria-label*="to"]',
+                    'input[aria-label*="end"]',
+                ]
+
+                to_date_input = None
+                for selector in to_date_selectors:
+                    try:
+                        to_date_input = self.page.wait_for_selector(
+                            selector, timeout=3000
+                        )
+                        if to_date_input and to_date_input.is_visible():
+                            # Make sure it's not the same as from_date_input
+                            if to_date_input != from_date_input:
+                                logger.info(f"✅ Found 'to' date input: {selector}")
+                                break
+                    except:
+                        continue
+
+                if to_date_input:
+                    # Fill in end date
+                    logger.info(f"📅 Setting end date to: {end_date_str}")
+
+                    # Clear existing value first
+                    to_date_input.click()
+                    to_date_input.fill("")
+
+                    # Fill with end date
+                    to_date_input.fill(end_date_str)
+                    logger.info(f"✅ Set end date to {end_date_str}")
+
+                    self.page.wait_for_timeout(1000)
+
+                    if save_screenshots:
+                        result["screenshot"] = self.save_screenshot("11_end_date_set")
+
+                    # Look for Apply/Search/Submit button to apply the filters
+                    apply_selectors = [
+                        'button:has-text("Apply")',
+                        'button:has-text("Search")',
+                        'button:has-text("Submit")',
+                        'button:has-text("Go")',
+                        'button[type="submit"]',
+                    ]
+
+                    apply_button = None
+                    for selector in apply_selectors:
+                        try:
+                            apply_button = self.page.wait_for_selector(
+                                selector, timeout=3000
+                            )
+                            if apply_button and apply_button.is_visible():
+                                logger.info(f"✅ Found apply button: {selector}")
+                                break
+                        except:
+                            continue
+
+                    if apply_button:
+                        logger.info("🖱️ Clicking apply button to apply filters...")
+                        apply_button.click()
+                        self.page.wait_for_timeout(3000)
+
+                        if save_screenshots:
+                            result["screenshot"] = self.save_screenshot(
+                                "12_filters_applied"
+                            )
+
+                        logger.info("✅ Filters applied successfully")
+                    else:
+                        logger.warning(
+                            "⚠️ No apply button found - filters may auto-apply"
+                        )
+
+                    result["success"] = True
+                    result["message"] = (
+                        f"Configured filters: 50 results per page, date range {start_date_str} to {end_date_str}"
+                    )
+                    logger.info(f"✅ {result['message']}")
+
+                else:
+                    logger.warning("⚠️ Could not find 'to' date input")
+                    result["success"] = False
+                    result["message"] = "Could not find 'to' date input field"
+
+            else:
+                logger.warning("⚠️ Could not find date range inputs")
+                result["success"] = False
+                result["message"] = "Could not find date range input fields"
+
+        except PlaywrightTimeoutError as e:
+            result["message"] = f"Timeout during filter configuration: {str(e)}"
+            logger.error(f"⏱️ {result['message']}")
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot(
+                    "error_filter_config_timeout"
+                )
+
+        except Exception as e:
+            result["message"] = f"Filter configuration failed: {str(e)}"
+            logger.error(f"❌ {result['message']}")
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot(
+                    "error_filter_config_exception"
                 )
 
         return result
@@ -798,6 +1426,531 @@ class UPSWebLoginAutomation:
 
         return result
 
+    def get_visible_tracking_numbers(self) -> List[str]:
+        """
+        Extract all visible tracking numbers from the current Shipping History page
+
+        Returns:
+            List of tracking numbers visible on the current page
+        """
+        visible_tracking_numbers = []
+
+        try:
+            logger.info("🔍 Extracting visible tracking numbers from page...")
+
+            # Wait for the table to load
+            self.page.wait_for_timeout(2000)
+
+            # Try different selectors to find tracking numbers in the table
+            tracking_selectors = [
+                'td:has-text("1Z")',  # UPS tracking numbers start with 1Z
+                "tr td",  # All table cells
+            ]
+
+            for selector in tracking_selectors:
+                try:
+                    cells = self.page.locator(selector).all()
+                    logger.info(
+                        f"🔍 Found {len(cells)} cells with selector: {selector}"
+                    )
+
+                    for cell in cells:
+                        try:
+                            text = cell.inner_text().strip()
+                            # UPS tracking numbers are 18 characters starting with 1Z
+                            if text.startswith("1Z") and len(text) == 18:
+                                if text not in visible_tracking_numbers:
+                                    visible_tracking_numbers.append(text)
+                                    logger.debug(f"   ✅ Found tracking number: {text}")
+                        except:
+                            continue
+
+                    if visible_tracking_numbers:
+                        break
+                except Exception as e:
+                    logger.debug(f"   ⚠️ Error with selector {selector}: {str(e)}")
+                    continue
+
+            logger.info(
+                f"✅ Found {len(visible_tracking_numbers)} tracking numbers on page"
+            )
+            return visible_tracking_numbers
+
+        except Exception as e:
+            logger.error(f"❌ Failed to extract tracking numbers: {e}")
+            return []
+
+    def void_shipment_by_tracking_number(
+        self, tracking_number: str, save_screenshots: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Void a shipment by searching for its tracking number on the Shipping History page
+
+        Args:
+            tracking_number: UPS tracking number to void
+            save_screenshots: Whether to save screenshots during the process
+
+        Returns:
+            Dictionary containing void result with keys:
+            - success: bool indicating if void was successful
+            - message: str describing the result
+            - tracking_number: str tracking number of voided shipment
+            - screenshot: str path to screenshot (if saved)
+        """
+        result = {
+            "success": False,
+            "message": "",
+            "tracking_number": tracking_number,
+            "screenshot": "",
+        }
+
+        try:
+            logger.info(f"🔍 Searching for tracking number: {tracking_number}")
+
+            # Wait for page to be ready
+            self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+            self.page.wait_for_timeout(3000)
+
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot(
+                    f"search_before_{tracking_number[:10]}"
+                )
+
+            # Look for search input field on the shipping history page
+            search_selectors = [
+                'input[type="search"]',
+                'input[placeholder*="Search"]',
+                'input[placeholder*="tracking"]',
+                'input[name*="search"]',
+            ]
+
+            search_input = None
+            for selector in search_selectors:
+                try:
+                    search_input = self.page.wait_for_selector(selector, timeout=3000)
+                    if search_input and search_input.is_visible():
+                        logger.info(f"✅ Found search input: {selector}")
+                        break
+                except:
+                    continue
+
+            if search_input:
+                # Use search to find the tracking number
+                logger.info(f"🔍 Searching for tracking number: {tracking_number}")
+                search_input.fill(tracking_number)
+                self.page.wait_for_timeout(2000)
+
+                if save_screenshots:
+                    result["screenshot"] = self.save_screenshot(
+                        f"search_entered_{tracking_number[:10]}"
+                    )
+
+            # Find the row containing this tracking number
+            logger.info(f"🔍 Looking for row with tracking number {tracking_number}...")
+
+            # Try to find the tracking number in the table
+            row_selectors = [
+                f'tr:has-text("{tracking_number}")',
+                f'tbody tr:has-text("{tracking_number}")',
+            ]
+
+            target_row = None
+            for selector in row_selectors:
+                try:
+                    target_row = self.page.wait_for_selector(selector, timeout=5000)
+                    if target_row and target_row.is_visible():
+                        logger.info(f"✅ Found row with tracking number")
+                        break
+                except:
+                    continue
+
+            if not target_row:
+                raise Exception(
+                    f"Could not find tracking number {tracking_number} in shipping history"
+                )
+
+            # Find the action button in this row
+            action_button = target_row.query_selector('button:has-text("Action Menu")')
+            if not action_button:
+                action_button = target_row.query_selector("button")
+
+            if not action_button:
+                raise Exception("Could not find action button for this tracking number")
+
+            # Click the action button
+            logger.info("🖱️ Clicking action button...")
+            action_button.click()
+            self.page.wait_for_timeout(2000)
+
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot(
+                    f"menu_opened_{tracking_number[:10]}"
+                )
+
+            # Find and click Void option
+            void_selectors = [
+                'a:has-text("Void")',
+                'button:has-text("Void")',
+                'li a:has-text("Void")',
+            ]
+
+            void_button = None
+            for selector in void_selectors:
+                try:
+                    void_button = self.page.wait_for_selector(selector, timeout=5000)
+                    if void_button and void_button.is_visible():
+                        logger.info(f"✅ Found Void option")
+                        break
+                except:
+                    continue
+
+            if not void_button:
+                raise Exception("Could not find Void option in menu")
+
+            # Click Void
+            logger.info("🖱️ Clicking Void...")
+            void_button.click()
+            self.page.wait_for_timeout(3000)
+
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot(
+                    f"void_confirm_{tracking_number[:10]}"
+                )
+
+            # Handle confirmation if present
+            confirm_selectors = [
+                'button:has-text("Confirm")',
+                'button:has-text("Yes")',
+                'button:has-text("Void Shipment")',
+                'button:has-text("OK")',
+            ]
+
+            for selector in confirm_selectors:
+                try:
+                    confirm_button = self.page.wait_for_selector(selector, timeout=3000)
+                    if confirm_button and confirm_button.is_visible():
+                        logger.info("🖱️ Clicking confirmation...")
+                        confirm_button.click()
+                        self.page.wait_for_timeout(3000)
+                        break
+                except:
+                    continue
+
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot(
+                    f"void_complete_{tracking_number[:10]}"
+                )
+
+            # Check for success
+            result["success"] = True
+            result["message"] = f"Shipment {tracking_number} voided successfully"
+            logger.info(f"✅ {result['message']}")
+
+        except Exception as e:
+            result["message"] = f"Failed to void {tracking_number}: {str(e)}"
+            logger.error(f"❌ {result['message']}")
+            if save_screenshots:
+                result["screenshot"] = self.save_screenshot(
+                    f"error_{tracking_number[:10]}"
+                )
+
+        return result
+
+    def bulk_void_shipments_from_csv(
+        self,
+        csv_path: str,
+        peerdb_path: str = PEERDB_DUCKDB_PATH,
+        save_screenshots: bool = True,
+        output_csv: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Bulk void shipments from ups_label_only_filter.py CSV output
+
+        This method:
+        1. Loads tracking numbers from CSV
+        2. Loads login credentials from PeerDB
+        3. Maps tracking numbers to credentials using account_number
+        4. Logs in with appropriate credentials for each account
+        5. Navigates to Shipping History and configures filters:
+           - Sets results per page to 50
+           - Sets date range to 85-89 days ago (same as ups_label_only_filter.py)
+        6. Extracts visible tracking numbers from the filtered page
+        7. Only voids tracking numbers that are visible on the filtered page
+        8. Saves results to CSV
+
+        Args:
+            csv_path: Path to ups_label_only_filter.py output CSV
+            peerdb_path: Path to PeerDB DuckDB file with login credentials
+            save_screenshots: Whether to save screenshots
+            output_csv: Path to save results CSV (default: auto-generated)
+
+        Returns:
+            Dictionary with results:
+            - total_tracking_numbers: int (from CSV)
+            - total_voided: int (successfully voided)
+            - total_failed: int (failed or not visible)
+            - results: List of void results with status for each tracking number
+        """
+        summary = {
+            "total_tracking_numbers": 0,
+            "total_voided": 0,
+            "total_failed": 0,
+            "results": [],
+        }
+
+        try:
+            # Step 1: Load tracking numbers from CSV
+            logger.info("📊 Step 1: Loading tracking numbers from CSV...")
+            tracking_data = load_tracking_numbers_from_csv(csv_path)
+
+            if not tracking_data:
+                logger.error("❌ No tracking numbers loaded from CSV")
+                return summary
+
+            summary["total_tracking_numbers"] = len(tracking_data)
+
+            # Step 2: Load credentials from PeerDB
+            logger.info("🔑 Step 2: Loading login credentials from PeerDB...")
+            credentials_map = load_login_credentials_from_peerdb(peerdb_path)
+
+            if not credentials_map:
+                logger.error("❌ No credentials loaded from PeerDB")
+                return summary
+
+            # Step 3: Map tracking numbers to credentials
+            logger.info("🔗 Step 3: Mapping tracking numbers to credentials...")
+            mapped_data = map_tracking_to_credentials(tracking_data, credentials_map)
+
+            if not mapped_data:
+                logger.error("❌ No tracking numbers could be mapped to credentials")
+                return summary
+
+            # Group by account for efficient login management
+            account_groups = {}
+            for item in mapped_data:
+                account_key = item["account_number_key"]
+                if account_key not in account_groups:
+                    account_groups[account_key] = []
+                account_groups[account_key].append(item)
+
+            logger.info(
+                f"📦 Grouped {len(mapped_data)} shipments into {len(account_groups)} accounts"
+            )
+
+            # Step 4: Process each account group
+            for account_key, items in account_groups.items():
+                logger.info(f"\n{'='*60}")
+                logger.info(
+                    f"🔐 Processing account {account_key} ({len(items)} shipments)"
+                )
+                logger.info(f"{'='*60}")
+
+                # Get credentials for this account
+                first_item = items[0]
+                username = first_item["username"]
+                password = first_item["password"]
+
+                # Login with this account's credentials
+                logger.info(f"🔑 Logging in as {username}...")
+
+                # Update instance credentials temporarily
+                original_username = self.username
+                original_password = self.password
+                self.username = username
+                self.password = password
+
+                try:
+                    # Perform login
+                    login_result = self.login(save_screenshots=save_screenshots)
+
+                    if not login_result["success"]:
+                        logger.error(
+                            f"❌ Login failed for account {account_key}: {login_result['message']}"
+                        )
+                        # Mark all items in this group as failed
+                        for item in items:
+                            summary["results"].append(
+                                {
+                                    "tracking_number": item["tracking_number"],
+                                    "account_number": item["full_account_number"],
+                                    "account_key": account_key,
+                                    "success": False,
+                                    "message": f"Login failed: {login_result['message']}",
+                                }
+                            )
+                            summary["total_failed"] += 1
+                        continue
+
+                    logger.info(f"✅ Login successful for account {account_key}")
+
+                    # Navigate to shipping history (with automatic filter configuration)
+                    logger.info(
+                        "🚢 Navigating to Shipping History and configuring filters..."
+                    )
+                    nav_result = self.navigate_to_shipping_history(
+                        save_screenshots=save_screenshots,
+                        configure_filters=True,  # This will set results per page to 50 and date range
+                    )
+
+                    if not nav_result["success"]:
+                        logger.error(f"❌ Navigation failed: {nav_result['message']}")
+                        # Mark all items as failed
+                        for item in items:
+                            summary["results"].append(
+                                {
+                                    "tracking_number": item["tracking_number"],
+                                    "account_number": item["full_account_number"],
+                                    "account_key": account_key,
+                                    "success": False,
+                                    "message": f"Navigation failed: {nav_result['message']}",
+                                }
+                            )
+                            summary["total_failed"] += 1
+                        continue
+
+                    # Check filter configuration result
+                    if "filter_config" in nav_result:
+                        filter_config = nav_result["filter_config"]
+                        if filter_config.get("success"):
+                            logger.info(
+                                f"✅ Filters configured: {filter_config.get('message', '')}"
+                            )
+                        else:
+                            logger.warning(
+                                f"⚠️ Filter configuration had issues: {filter_config.get('message', '')}"
+                            )
+
+                    # Extract visible tracking numbers from the filtered page
+                    logger.info(
+                        "🔍 Checking which tracking numbers are visible on the filtered page..."
+                    )
+                    visible_tracking_numbers = self.get_visible_tracking_numbers()
+
+                    if not visible_tracking_numbers:
+                        logger.warning(
+                            "⚠️ No tracking numbers found on the filtered page"
+                        )
+                        # Mark all items as skipped
+                        for item in items:
+                            summary["results"].append(
+                                {
+                                    "tracking_number": item["tracking_number"],
+                                    "account_number": item["full_account_number"],
+                                    "account_key": account_key,
+                                    "success": False,
+                                    "message": "Not visible on filtered page",
+                                }
+                            )
+                            summary["total_failed"] += 1
+                        continue
+
+                    logger.info(
+                        f"✅ Found {len(visible_tracking_numbers)} tracking numbers on filtered page"
+                    )
+
+                    # Filter items to only those visible on the page
+                    items_to_void = []
+                    items_not_visible = []
+
+                    for item in items:
+                        if item["tracking_number"] in visible_tracking_numbers:
+                            items_to_void.append(item)
+                        else:
+                            items_not_visible.append(item)
+                            logger.info(
+                                f"⚠️ Tracking {item['tracking_number']} not visible on filtered page - skipping"
+                            )
+                            summary["results"].append(
+                                {
+                                    "tracking_number": item["tracking_number"],
+                                    "account_number": item["full_account_number"],
+                                    "account_key": account_key,
+                                    "success": False,
+                                    "message": "Not visible on filtered page (outside date range or already voided)",
+                                }
+                            )
+                            summary["total_failed"] += 1
+
+                    if not items_to_void:
+                        logger.warning(
+                            f"⚠️ None of the {len(items)} tracking numbers are visible on the filtered page"
+                        )
+                        continue
+
+                    logger.info(
+                        f"📋 Will void {len(items_to_void)}/{len(items)} tracking numbers that are visible"
+                    )
+
+                    # Void each shipment that is visible on the page
+                    for i, item in enumerate(items_to_void, 1):
+                        tracking_number = item["tracking_number"]
+                        logger.info(f"\n🗑️ Voiding {i}/{len(items)}: {tracking_number}")
+
+                        void_result = self.void_shipment_by_tracking_number(
+                            tracking_number, save_screenshots=save_screenshots
+                        )
+
+                        # Record result
+                        summary["results"].append(
+                            {
+                                "tracking_number": tracking_number,
+                                "account_number": item["full_account_number"],
+                                "account_key": account_key,
+                                "success": void_result["success"],
+                                "message": void_result["message"],
+                            }
+                        )
+
+                        if void_result["success"]:
+                            summary["total_voided"] += 1
+                            logger.info(f"   ✅ Success")
+                        else:
+                            summary["total_failed"] += 1
+                            logger.error(f"   ❌ Failed: {void_result['message']}")
+
+                        # Small delay between voids
+                        self.page.wait_for_timeout(2000)
+
+                finally:
+                    # Restore original credentials
+                    self.username = original_username
+                    self.password = original_password
+
+            # Step 5: Save results to CSV
+            if output_csv is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_csv = os.path.join(OUTPUT_DIR, f"void_results_{timestamp}.csv")
+
+            logger.info(f"\n💾 Saving results to CSV: {output_csv}")
+
+            with open(output_csv, "w", encoding="utf-8", newline="") as f:
+                fieldnames = [
+                    "tracking_number",
+                    "account_number",
+                    "account_key",
+                    "success",
+                    "message",
+                ]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(summary["results"])
+
+            logger.info(f"✅ Results saved to: {output_csv}")
+
+            # Print summary
+            logger.info(f"\n{'='*60}")
+            logger.info("📊 BULK VOID SUMMARY")
+            logger.info(f"{'='*60}")
+            logger.info(f"Total tracking numbers: {summary['total_tracking_numbers']}")
+            logger.info(f"Successfully voided: {summary['total_voided']}")
+            logger.info(f"Failed: {summary['total_failed']}")
+            logger.info(f"Results saved to: {output_csv}")
+
+        except Exception as e:
+            logger.error(f"❌ Bulk void failed: {e}")
+
+        return summary
+
 
 def main():
     """Main function to demonstrate UPS login automation with shipping history navigation"""
@@ -856,4 +2009,8 @@ def main():
 
 if __name__ == "__main__":
     success = main()
+    sys.exit(0 if success else 1)
+    sys.exit(0 if success else 1)
+    sys.exit(0 if success else 1)
+    sys.exit(0 if success else 1)
     sys.exit(0 if success else 1)

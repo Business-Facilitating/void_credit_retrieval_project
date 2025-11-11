@@ -11,11 +11,13 @@ This guide covers deploying the UPS web login automation to a Google Cloud VM ru
 **UPS blocks headless browsers** with HTTP2 protocol errors. For reliable operation on a headless server, you have two options:
 
 ### **Option 1: Xvfb (Virtual Display) - ✅ RECOMMENDED**
+
 - Runs browser in "headed" mode on a virtual display
 - Most reliable, works exactly like local development
 - Requires Xvfb installation
 
 ### **Option 2: Headless with Anti-Detection - ⚠️ EXPERIMENTAL**
+
 - May not work due to UPS anti-bot measures
 - Provided as `ups_web_login_headless.py`
 - Use only if Xvfb is not an option
@@ -25,6 +27,7 @@ This guide covers deploying the UPS web login automation to a Google Cloud VM ru
 ## 📋 **Prerequisites**
 
 1. Google Cloud VM with:
+
    - **OS**: Ubuntu 20.04 LTS or newer (recommended)
    - **RAM**: Minimum 2GB (4GB recommended)
    - **Disk**: Minimum 10GB
@@ -167,7 +170,7 @@ export DISPLAY=:$DISPLAY_NUM
 
 # Run the automation
 echo "Running UPS automation..."
-poetry run python src/src/ups_web_login.py
+poetry run python src/src/ups_shipment_void_automation.py --headless
 
 # Capture exit code
 EXIT_CODE=$?
@@ -288,6 +291,7 @@ ls -l run_with_xvfb.sh
 ### **Issue: "HTTP2 Protocol Error"**
 
 This means headless mode is being blocked. Solutions:
+
 1. Use Xvfb (Option 1) - **Recommended**
 2. Try the headless version with anti-detection
 3. Use a different approach (API instead of web scraping)
@@ -323,22 +327,25 @@ poetry run python -c "import sys; print(sys.path)"
 ## 🔒 **Security Best Practices**
 
 1. **Protect `.env` file**:
+
    ```bash
    chmod 600 .env
    ```
 
 2. **Use Google Secret Manager** (recommended):
+
    ```bash
    # Store secrets in Google Secret Manager
    gcloud secrets create ups-username --data-file=- <<< "your_username"
    gcloud secrets create ups-password --data-file=- <<< "your_password"
-   
+
    # Retrieve in your script
    export UPS_WEB_USERNAME=$(gcloud secrets versions access latest --secret="ups-username")
    export UPS_WEB_PASSWORD=$(gcloud secrets versions access latest --secret="ups-password")
    ```
 
 3. **Restrict VM access**:
+
    - Use firewall rules to limit inbound traffic
    - Use service accounts with minimal permissions
    - Enable OS Login for SSH access
@@ -423,4 +430,3 @@ chmod +x run_with_xvfb.sh && \
 - ✅ Secure your credentials properly
 
 **The automation will work on Google Cloud VMs with proper setup!** 🚀
-

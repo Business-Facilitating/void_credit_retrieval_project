@@ -44,6 +44,7 @@ A comprehensive data pipeline and tracking automation system for carrier invoice
 - **CSV/JSON Export**: Export results to CSV and JSON formats for analysis
 - **Incremental Loading**: Smart incremental data loading with time-based filtering
 - **Security**: Environment variable-based credential management
+- **GCP Deployment**: Full support for Google Cloud Platform Linux VMs with Makefile and cron automation
 
 ## 📋 Prerequisites
 
@@ -71,6 +72,90 @@ A comprehensive data pipeline and tracking automation system for carrier invoice
    ```bash
    poetry run python tests/setup_env.py
    ```
+
+## 🚢 Deployment Options
+
+### Option 1: Persistent VM with Cron (Traditional)
+
+- **Best for:** Frequent runs, complex workflows
+- **Cost:** ~$25-30/month (VM running 24/7)
+- **Setup:** [deployment/option1_persistent_vm/](deployment/option1_persistent_vm/)
+
+### Option 2: Ephemeral VM with Cloud Scheduler (Recommended) ⭐
+
+- **Best for:** Infrequent runs (every other day), cost optimization
+- **Cost:** ~$0.50-1/month (VM only when running)
+- **Savings:** ~95% cheaper!
+- **Setup:** [deployment/option2_ephemeral_vm/](deployment/option2_ephemeral_vm/)
+
+**👉 See [deployment/README.md](deployment/README.md) for complete deployment guide**
+
+---
+
+## 🚀 Quick Start - Option 2 (Ephemeral VM - Recommended)
+
+**5-Step Setup:**
+
+```bash
+# 1. Navigate to deployment folder
+cd deployment/option2_ephemeral_vm
+
+# 2. Update configuration
+nano deploy_ephemeral.sh  # Set PROJECT_ID and REPO_URL
+
+# 3. Ensure .env file exists with credentials
+ls -la ../../.env
+
+# 4. Run deployment script
+chmod +x deploy_ephemeral.sh
+./deploy_ephemeral.sh
+
+# 5. Test the setup
+gcloud scheduler jobs run gsr-automation-scheduler --location=us-central1
+
+# 6. Check results
+gsutil ls gs://gsr-automation-results/runs/
+```
+
+**What you get:**
+
+- ✅ Automated runs every other day at 2:00 AM
+- ✅ Fresh VM created for each run
+- ✅ Results saved to Cloud Storage
+- ✅ VM auto-deletes after completion
+- ✅ ~$0.50-1/month cost
+
+**See:** [deployment/option2_ephemeral_vm/OPTION2_QUICK_START.md](deployment/option2_ephemeral_vm/OPTION2_QUICK_START.md)
+
+---
+
+## 🛠️ Quick Start - Option 1 (Persistent VM)
+
+```bash
+# 1. Copy Makefile to project root
+cp deployment/option1_persistent_vm/Makefile .
+
+# 2. On your GCP VM, run setup
+make setup              # Install dependencies and setup
+make test-step1         # Test Step 1: Extract from ClickHouse
+make test-step2         # Test Step 2: Filter label-only
+make test-step3         # Test Step 3: UPS web login
+make pipeline-full      # Run complete pipeline
+
+# 3. Setup automated scheduling
+crontab -e              # Add cron jobs (see deployment/option1_persistent_vm/crontab.txt)
+```
+
+**Available Commands:**
+
+```bash
+make help               # Show all available commands
+make pipeline-full      # Run all 3 steps sequentially
+make status             # Show pipeline status
+make logs               # View recent logs
+```
+
+**See:** [deployment/option1_persistent_vm/DEPLOYMENT_QUICK_REFERENCE.md](deployment/option1_persistent_vm/DEPLOYMENT_QUICK_REFERENCE.md)
 
 ## 🔧 Configuration
 
@@ -200,11 +285,21 @@ gsr_automation/
 
 ## 📖 Documentation
 
+### Core Documentation
+
 - [Security Setup Guide](docs/SECURITY_SETUP.md) - Detailed security configuration
 - [UPS Web Login](docs/README_UPS_Web_Login.md) - UPS website automation guide
 - [17Track Integration](docs/README_17Track_Integration.md) - 17Track API documentation
 - [Date Standardization](docs/DATE_STANDARDIZATION_SUMMARY.md) - Date format handling
 - [Workflow Documentation](docs/WORKFLOW_DOCUMENTATION.md) - Process workflows
+
+### Deployment Documentation
+
+- [Deployment Summary](docs/DEPLOYMENT_SUMMARY.md) - Complete deployment overview
+- [Makefile & Cron Guide](docs/MAKEFILE_CRON_DEPLOYMENT.md) - Detailed deployment guide
+- [Quick Reference](docs/DEPLOYMENT_QUICK_REFERENCE.md) - Quick reference card
+- [GCP Deployment](docs/GOOGLE_CLOUD_DEPLOYMENT.md) - Google Cloud Platform guide
+- [Linux Deployment](docs/LINUX_DEPLOYMENT_SUMMARY.md) - Linux deployment summary
 
 ## 🤝 Contributing
 

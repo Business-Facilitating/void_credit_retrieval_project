@@ -24,8 +24,8 @@ Example:
 
 Configuration:
     Set in .env file:
-    - DLT_TRANSACTION_START_CUTOFF_DAYS=89 (default)
-    - DLT_TRANSACTION_END_CUTOFF_DAYS=85 (default)
+    - DLT_PIPELINE_START_DAYS=89 (default: 89 days ago)
+    - DLT_PIPELINE_END_DAYS=85 (default: 85 days ago)
 
 Output:
     - DuckDB: data/output/carrier_invoice_extraction.duckdb
@@ -109,6 +109,11 @@ class ClickHouseConnection:
             return False
 
         try:
+            # Disable SSL warnings for ClickHouse Cloud connections
+            import urllib3
+
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
             self.client = clickhouse_connect.get_client(
                 host=self.host,
                 port=self.port,
@@ -118,7 +123,7 @@ class ClickHouseConnection:
                 secure=self.secure,
                 connect_timeout=60,
                 send_receive_timeout=300,
-                verify=False,  # Disable SSL verification for cloud connections
+                verify=False,  # Disable SSL verification for Windows compatibility
             )
 
             # Test connection
@@ -294,12 +299,8 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                 # Window configuration (seconds). Default: 1 hour
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
                 # Date range for transaction_date - 85-89 days prior (5-day window)
-                START_CUTOFF_DAYS = int(
-                    os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89")
-                )
-                END_CUTOFF_DAYS = int(
-                    os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85")
-                )
+                START_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+                END_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
                 start_target_date = (
                     datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
                 ).date()
@@ -389,12 +390,8 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
 
                 # Determine bounds limited by transaction_date range (85-89 days ago)
-                START_CUTOFF_DAYS = int(
-                    os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89")
-                )
-                END_CUTOFF_DAYS = int(
-                    os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85")
-                )
+                START_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+                END_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
                 start_target_date = (
                     datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
                 ).date()
@@ -512,8 +509,8 @@ def run_carrier_invoice_extraction(destination="duckdb", pipeline_name_suffix=""
     print("=" * 60)
 
     # Show the exact target date range being used
-    start_cutoff_days = int(os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89"))
-    end_cutoff_days = int(os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85"))
+    start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+    end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
     start_target_date = (datetime.utcnow() - timedelta(days=start_cutoff_days)).date()
     end_target_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).date()
     print(
@@ -654,10 +651,8 @@ def export_to_duckdb(pipeline):
             import duckdb
 
             # Calculate the target date range for filtering
-            start_cutoff_days = int(
-                os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89")
-            )
-            end_cutoff_days = int(os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85"))
+            start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+            end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
             start_date_str = (
                 datetime.utcnow() - timedelta(days=start_cutoff_days)
             ).strftime("%Y-%m-%d")
@@ -770,10 +765,8 @@ def extract_tracking_numbers_from_pipeline(pipeline):
         # Query tracking numbers from DuckDB
         with pipeline.sql_client() as client:
             # Get tracking numbers for the target date range
-            start_cutoff_days = int(
-                os.getenv("DLT_TRANSACTION_START_CUTOFF_DAYS", "89")
-            )
-            end_cutoff_days = int(os.getenv("DLT_TRANSACTION_END_CUTOFF_DAYS", "85"))
+            start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+            end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
             start_target_date = (
                 datetime.utcnow() - timedelta(days=start_cutoff_days)
             ).date()
@@ -881,6 +874,8 @@ if __name__ == "__main__":
         print("\n2. Querying extracted data...")
         query_duckdb_data(limit=5)
 
+    print("\n✅ Pipeline execution completed!")
+    print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")

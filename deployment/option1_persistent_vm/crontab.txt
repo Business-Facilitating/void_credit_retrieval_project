@@ -1,0 +1,254 @@
+# GSR Automation - Cron Job Configuration for GCP Linux VM
+# Author: Gabriel Jerdhy Lapuz
+# Project: gsr_automation
+#
+# This file contains cron job configurations for running the data pipeline
+# on a scheduled basis. The pipeline consists of three sequential jobs:
+# 1. Extract carrier invoice data from ClickHouse (dlt_pipeline_examples.py)
+# 2. Filter tracking numbers with label-only status (ups_label_only_filter.py)
+# 3. Perform automated UPS web login (ups_web_login.py)
+#
+# ============================================================================
+# Installation Instructions
+# ============================================================================
+#
+# To install these cron jobs on your GCP Linux VM:
+#
+# 1. Edit your crontab:
+#    crontab -e
+#
+# 2. Copy the desired cron job entries from below and paste them into your crontab
+#
+# 3. Update the PROJECT_PATH variable to match your installation directory
+#
+# 4. Save and exit the editor
+#
+# 5. Verify the cron jobs are installed:
+#    crontab -l
+#
+# ============================================================================
+# Cron Job Format
+# ============================================================================
+#
+# Cron format: * * * * * command
+#              │ │ │ │ │
+#              │ │ │ │ └─── Day of week (0-7, Sunday=0 or 7)
+#              │ │ │ └───── Month (1-12)
+#              │ │ └─────── Day of month (1-31)
+#              │ └───────── Hour (0-23)
+#              └─────────── Minute (0-59)
+#
+# ============================================================================
+# Environment Variables
+# ============================================================================
+#
+# Set these at the top of your crontab file:
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/YOUR_USERNAME/.local/bin
+MAILTO=""
+
+# ============================================================================
+# Option 1: Run Full Pipeline Daily (Recommended)
+# ============================================================================
+#
+# This runs the complete 3-step pipeline once per day at 2:00 AM
+# The Makefile handles sequential execution with appropriate delays
+#
+# Schedule: Daily at 2:00 AM
+# Duration: ~10-15 minutes (depending on data volume)
+
+# Run full pipeline daily at 2:00 AM
+0 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make pipeline-full >> logs/cron_pipeline_full.log 2>&1
+
+# ============================================================================
+# Option 2: Run Individual Steps with Delays (Alternative)
+# ============================================================================
+#
+# This runs each step separately with time delays between them
+# Use this if you need more control over timing or want to monitor each step
+#
+# Schedule:
+# - Step 1 (DLT Pipeline): 2:00 AM
+# - Step 2 (Label Filter): 2:05 AM (5 minutes after Step 1)
+# - Step 3 (Web Login): 2:10 AM (10 minutes after Step 1, 5 minutes after Step 2)
+
+# Step 1: Extract carrier invoice data from ClickHouse (2:00 AM)
+# 0 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make pipeline-step1 >> logs/cron_step1.log 2>&1
+
+# Step 2: Filter tracking numbers with label-only status (2:05 AM)
+# 5 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make pipeline-step2 >> logs/cron_step2.log 2>&1
+
+# Step 3: Automated UPS web login (2:10 AM)
+# 10 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make pipeline-step3 >> logs/cron_step3.log 2>&1
+
+# ============================================================================
+# Option 3: Run Full Pipeline Multiple Times Per Day
+# ============================================================================
+#
+# This runs the complete pipeline multiple times per day
+# Useful if you need more frequent data updates
+#
+# Schedule: Every 6 hours (2 AM, 8 AM, 2 PM, 8 PM)
+
+# Run full pipeline every 6 hours
+# 0 2,8,14,20 * * * cd /home/YOUR_USERNAME/gsr_automation && make pipeline-full >> logs/cron_pipeline_full.log 2>&1
+
+# ============================================================================
+# Option 4: Run Full Pipeline on Specific Days
+# ============================================================================
+#
+# This runs the complete pipeline only on specific days of the week
+# Useful if you only need to process data on certain days
+#
+# Schedule: Monday, Wednesday, Friday at 2:00 AM
+
+# Run full pipeline on Mon, Wed, Fri at 2:00 AM
+# 0 2 * * 1,3,5 cd /home/YOUR_USERNAME/gsr_automation && make pipeline-full >> logs/cron_pipeline_full.log 2>&1
+
+# ============================================================================
+# Maintenance Jobs
+# ============================================================================
+#
+# These jobs help keep your system clean by removing old files
+
+# Clean old log files (>7 days) - Weekly on Sunday at 3:00 AM
+0 3 * * 0 cd /home/YOUR_USERNAME/gsr_automation && make clean-logs >> logs/cron_cleanup.log 2>&1
+
+# Clean old output files (>30 days) - Monthly on 1st at 4:00 AM
+0 4 1 * * cd /home/YOUR_USERNAME/gsr_automation && make clean-output >> logs/cron_cleanup.log 2>&1
+
+# ============================================================================
+# Monitoring and Health Checks
+# ============================================================================
+#
+# These jobs help you monitor the pipeline status
+
+# Generate daily status report - Daily at 9:00 AM
+# 0 9 * * * cd /home/YOUR_USERNAME/gsr_automation && make status >> logs/cron_status_$(date +\%Y\%m\%d).log 2>&1
+
+# ============================================================================
+# Testing and Validation
+# ============================================================================
+#
+# Use these for testing before enabling the main pipeline
+# Uncomment to test individual steps
+
+# Test Step 1 only
+# 0 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make test-step1 >> logs/cron_test_step1.log 2>&1
+
+# Test Step 2 only
+# 0 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make test-step2 >> logs/cron_test_step2.log 2>&1
+
+# Test Step 3 only
+# 0 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make test-step3 >> logs/cron_test_step3.log 2>&1
+
+# ============================================================================
+# Advanced: Conditional Execution with Error Handling
+# ============================================================================
+#
+# This example shows how to run steps conditionally based on previous step success
+# It uses a shell script wrapper for more complex logic
+
+# Run full pipeline with error notifications
+# 0 2 * * * cd /home/YOUR_USERNAME/gsr_automation && ./scripts/run_pipeline_with_notifications.sh >> logs/cron_pipeline_full.log 2>&1
+
+# ============================================================================
+# Notes and Best Practices
+# ============================================================================
+#
+# 1. **Timing Considerations:**
+#    - Step 1 (DLT Pipeline): ~2-5 minutes (depends on data volume)
+#    - Step 2 (Label Filter): ~1-3 minutes (depends on tracking numbers)
+#    - Step 3 (Web Login): ~2-5 minutes (depends on browser automation)
+#    - Total: ~5-15 minutes for full pipeline
+#
+# 2. **Resource Usage:**
+#    - Step 3 requires Xvfb (virtual display) and uses more memory
+#    - Ensure your VM has at least 2GB RAM (4GB recommended)
+#    - Monitor disk usage for logs and output files
+#
+# 3. **Error Handling:**
+#    - Each step logs to separate files for easier debugging
+#    - The Makefile exits on error, preventing subsequent steps from running
+#    - Check logs regularly: tail -f logs/cron_pipeline_full.log
+#
+# 4. **Logging:**
+#    - All logs are saved to the logs/ directory
+#    - Use make clean-logs to remove old logs
+#    - Consider setting up log rotation for long-term deployments
+#
+# 5. **Environment Variables:**
+#    - Ensure .env file exists and contains all required credentials
+#    - Use make env-check to validate environment configuration
+#    - Never commit .env file to version control
+#
+# 6. **Monitoring:**
+#    - Use make status to check recent pipeline runs
+#    - Set up alerts for failed pipeline runs (optional)
+#    - Monitor output files in data/output/ directory
+#
+# 7. **Security:**
+#    - Protect .env file: chmod 600 .env
+#    - Use Google Secret Manager for production credentials (recommended)
+#    - Restrict VM access with firewall rules
+#    - Rotate credentials regularly
+#
+# 8. **Testing:**
+#    - Test each step individually before enabling full pipeline
+#    - Run make test-step1, make test-step2, make test-step3
+#    - Verify output files are created correctly
+#    - Check screenshots for Step 3 (data/output/*.png)
+#
+# 9. **Troubleshooting:**
+#    - If cron jobs don't run, check cron service: sudo systemctl status cron
+#    - Verify PATH includes poetry: which poetry
+#    - Check cron logs: grep CRON /var/log/syslog
+#    - Ensure scripts are executable: chmod +x run_with_xvfb.sh
+#
+# 10. **Performance Optimization:**
+#     - Adjust DELAY_AFTER_PIPELINE and DELAY_AFTER_FILTER in Makefile
+#     - Use make pipeline-full-bg to run in background
+#     - Consider running during off-peak hours
+#     - Monitor VM resource usage: htop, df -h
+#
+# ============================================================================
+# Example: Complete Crontab Setup
+# ============================================================================
+#
+# Here's a complete example crontab configuration:
+#
+# SHELL=/bin/bash
+# PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/gsr/.local/bin
+# MAILTO=""
+#
+# # Run full pipeline daily at 2:00 AM
+# 0 2 * * * cd /home/gsr/gsr_automation && make pipeline-full >> logs/cron_pipeline_full.log 2>&1
+#
+# # Clean old logs weekly on Sunday at 3:00 AM
+# 0 3 * * 0 cd /home/gsr/gsr_automation && make clean-logs >> logs/cron_cleanup.log 2>&1
+#
+# # Clean old output files monthly on 1st at 4:00 AM
+# 0 4 1 * * cd /home/gsr/gsr_automation && make clean-output >> logs/cron_cleanup.log 2>&1
+#
+# ============================================================================
+# Quick Reference
+# ============================================================================
+#
+# Common cron schedules:
+# - Every minute:        * * * * *
+# - Every hour:          0 * * * *
+# - Every day at 2 AM:   0 2 * * *
+# - Every Monday at 2 AM: 0 2 * * 1
+# - Every 6 hours:       0 */6 * * *
+# - First of month:      0 0 1 * *
+#
+# Useful commands:
+# - Edit crontab:        crontab -e
+# - List crontab:        crontab -l
+# - Remove crontab:      crontab -r
+# - Check cron service:  sudo systemctl status cron
+# - View cron logs:      grep CRON /var/log/syslog
+#
+# ============================================================================
+
