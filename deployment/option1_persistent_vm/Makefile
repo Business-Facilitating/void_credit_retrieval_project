@@ -25,6 +25,10 @@ SRC_DIR := $(PROJECT_ROOT)/src/src
 DATA_OUTPUT_DIR := $(PROJECT_ROOT)/data/output
 LOG_DIR := $(PROJECT_ROOT)/logs
 
+# Export environment variables for scripts
+export OUTPUT_DIR := $(DATA_OUTPUT_DIR)
+export DUCKDB_PATH := $(DATA_OUTPUT_DIR)/carrier_invoice_extraction.duckdb
+
 # Scripts
 SCRIPT_SLACK_WHITELIST := $(SRC_DIR)/slack_whitelist_ip.py
 SCRIPT_DLT_PIPELINE := $(SRC_DIR)/dlt_pipeline_examples.py
