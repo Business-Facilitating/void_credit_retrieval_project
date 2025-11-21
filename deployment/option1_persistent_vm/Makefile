@@ -20,10 +20,10 @@ POETRY := $(HOME)/.local/bin/poetry
 POETRY_RUN := $(POETRY) run python
 
 # Project paths
-PROJECT_ROOT := $(shell pwd)
-SRC_DIR := src/src
-DATA_OUTPUT_DIR := data/output
-LOG_DIR := logs
+PROJECT_ROOT := $(shell cd ../.. && pwd)
+SRC_DIR := $(PROJECT_ROOT)/src/src
+DATA_OUTPUT_DIR := $(PROJECT_ROOT)/data/output
+LOG_DIR := $(PROJECT_ROOT)/logs
 
 # Scripts
 SCRIPT_SLACK_WHITELIST := $(SRC_DIR)/slack_whitelist_ip.py
