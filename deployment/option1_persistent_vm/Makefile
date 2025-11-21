@@ -157,7 +157,7 @@ pipeline-step1:
 	@echo "$(GREEN)🚀 Pipeline Step 1: Extract Carrier Invoice Data$(NC)"
 	@echo "$(GREEN)============================================================$(NC)"
 	@mkdir -p $(LOG_DIR)
-	@$(POETRY_RUN) $(SCRIPT_DLT_PIPELINE) 2>&1 | tee $(LOG_DIR)/step1_dlt_pipeline_$(TIMESTAMP).log
+	@OUTPUT_DIR=$(DATA_OUTPUT_DIR) $(POETRY_RUN) $(SCRIPT_DLT_PIPELINE) 2>&1 | tee $(LOG_DIR)/step1_dlt_pipeline_$(TIMESTAMP).log
 	@if [ $$? -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 1 completed successfully$(NC)"; \
 		echo "$(BLUE)📤 Uploading Step 1 outputs to GCS...$(NC)"; \
@@ -177,7 +177,7 @@ pipeline-step2:
 	@echo "$(GREEN)📊 Pipeline Step 2: Extract Industry Index Logins from PeerDB$(NC)"
 	@echo "$(GREEN)============================================================$(NC)"
 	@mkdir -p $(LOG_DIR)
-	@$(POETRY_RUN) $(SCRIPT_PEERDB_PIPELINE) 2>&1 | tee $(LOG_DIR)/step2_peerdb_pipeline_$(TIMESTAMP).log
+	@OUTPUT_DIR=$(DATA_OUTPUT_DIR) $(POETRY_RUN) $(SCRIPT_PEERDB_PIPELINE) 2>&1 | tee $(LOG_DIR)/step2_peerdb_pipeline_$(TIMESTAMP).log
 	@if [ $$? -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 2 completed successfully$(NC)"; \
 		echo "$(BLUE)📤 Uploading Step 2 outputs to GCS...$(NC)"; \
@@ -197,7 +197,7 @@ pipeline-step3:
 	@echo "$(GREEN)🔍 Pipeline Step 3: Filter Label-Only Tracking Numbers$(NC)"
 	@echo "$(GREEN)============================================================$(NC)"
 	@mkdir -p $(LOG_DIR)
-	@$(POETRY_RUN) $(SCRIPT_LABEL_FILTER) 2>&1 | tee $(LOG_DIR)/step3_label_filter_$(TIMESTAMP).log
+	@OUTPUT_DIR=$(DATA_OUTPUT_DIR) DUCKDB_PATH=$(DATA_OUTPUT_DIR)/carrier_invoice_extraction.duckdb $(POETRY_RUN) $(SCRIPT_LABEL_FILTER) 2>&1 | tee $(LOG_DIR)/step3_label_filter_$(TIMESTAMP).log
 	@if [ $$? -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 3 completed successfully$(NC)"; \
 		echo "$(BLUE)📤 Uploading Step 3 outputs to GCS...$(NC)"; \
