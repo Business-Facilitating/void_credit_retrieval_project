@@ -222,15 +222,16 @@ Deployment Files Structure:
 
 Makefile (Main automation)
     ├── Calls: src/src/dlt_pipeline_examples.py (Step 1)
-    ├── Calls: src/src/ups_label_only_filter.py (Step 2)
-    ├── Calls: src/src/ups_shipment_void_automation.py (Step 3)
-    └── Uses: run_with_xvfb.sh (for Step 3)
+    ├── Calls: src/src/peerdb_pipeline.py (Step 2)
+    ├── Calls: src/src/ups_label_only_filter.py (Step 3)
+    ├── Calls: src/src/ups_shipment_void_automation.py (Step 4)
+    └── Uses: run_with_xvfb.sh (for Step 4)
 
 crontab.txt (Scheduling)
     └── Schedules: make pipeline-full
 
 scripts/run_pipeline_with_notifications.sh (Enhanced runner)
-    └── Calls: make pipeline-step1, make pipeline-step2, make pipeline-step3
+    └── Calls: make pipeline-step1, make pipeline-step2, make pipeline-step3, make pipeline-step4
 
 scripts/gcp_vm_setup.sh (Setup automation)
     ├── Installs: System dependencies

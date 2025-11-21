@@ -35,10 +35,14 @@ A comprehensive data pipeline and tracking automation system for carrier invoice
 
 ## 🚀 Features
 
-- **Data Pipeline**: Extract carrier invoice data from ClickHouse using DLT
-- **85-89 Days Tracking Workflow**: Automated 2-step process to extract and track shipments from 85-89 days ago
+- **4-Step Automated Pipeline**: Complete workflow from data extraction to shipment void automation
+  1. Extract carrier invoice data from ClickHouse
+  2. Extract industry index logins from PeerDB
+  3. Filter label-only tracking numbers
+  4. Automated UPS shipment void
+- **Multi-Database Support**: ClickHouse and PeerDB integration
 - **Package Tracking**: Integration with UPS Tracking API, 17Track and TrackingMore APIs
-- **UPS Web Automation**: Automated login to UPS website using Playwright
+- **UPS Web Automation**: Automated login and shipment void using Playwright
 - **Batch Processing**: Efficient handling of large datasets with configurable batch sizes
 - **Date Standardization**: Consistent date formatting across all data sources
 - **CSV/JSON Export**: Export results to CSV and JSON formats for analysis
@@ -150,7 +154,7 @@ crontab -e              # Add cron jobs (see deployment/option1_persistent_vm/cr
 
 ```bash
 make help               # Show all available commands
-make pipeline-full      # Run all 3 steps sequentially
+make pipeline-full      # Run all 4 steps sequentially
 make status             # Show pipeline status
 make logs               # View recent logs
 ```
@@ -168,32 +172,46 @@ All configuration is managed through environment variables in your `.env` file:
 
 ## 📊 Usage
 
-### 🎯 Main Workflow: 85-89 Days Tracking (Recommended)
+### 🎯 Main Automated Pipeline (Recommended)
 
-This is the primary workflow for tracking shipments from 85-89 days ago:
+This is the complete 4-step automated pipeline for shipment processing:
 
-**Step 1: Extract tracking numbers from ClickHouse**
+**Step 1: Extract carrier invoice data from ClickHouse**
 
 ```bash
 poetry run python src/src/dlt_pipeline_examples.py
 ```
 
-**Step 2A: Query UPS Tracking API (All Statuses)**
+**Step 2: Extract industry index logins from PeerDB**
 
 ```bash
-poetry run python src/src/ups_api.py
+poetry run python src/src/peerdb_pipeline.py
 ```
 
-**Step 2B: Filter for Label-Only Tracking Numbers (Alternative)**
+**Step 3: Filter for Label-Only Tracking Numbers**
 
 ```bash
 poetry run python src/src/ups_label_only_filter.py
+```
+
+**Step 4: Automated UPS Shipment Void**
+
+```bash
+poetry run python src/src/ups_shipment_void_automation.py
+```
+
+**Or run all steps together using Makefile:**
+
+```bash
+make pipeline-full  # Runs all 4 steps sequentially with proper delays
 ```
 
 📖 **For detailed workflow documentation:**
 
 - **Main Workflow**: [docs/WORKFLOW_85_89_DAYS.md](docs/WORKFLOW_85_89_DAYS.md)
 - **Label-Only Filter**: [docs/UPS_LABEL_ONLY_FILTER.md](docs/UPS_LABEL_ONLY_FILTER.md)
+- **PeerDB Pipeline**: [docs/README_PeerDB_Pipeline.md](docs/README_PeerDB_Pipeline.md)
+- **Deployment Guide**: [deployment/README.md](deployment/README.md)
 
 ---
 

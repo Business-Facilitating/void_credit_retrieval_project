@@ -4,11 +4,12 @@
 
 This guide explains how to deploy and run the GSR Automation pipeline on a Google Cloud Platform (GCP) Linux VM using the provided Makefile and cron job configurations.
 
-The pipeline consists of three sequential steps:
+The pipeline consists of four sequential steps:
 
 1. **Step 1**: Extract carrier invoice data from ClickHouse (`dlt_pipeline_examples.py`)
-2. **Step 2**: Filter tracking numbers with label-only status (`ups_label_only_filter.py`)
-3. **Step 3**: Perform automated UPS shipment void (`ups_shipment_void_automation.py`)
+2. **Step 2**: Extract industry index logins from PeerDB (`peerdb_pipeline.py`)
+3. **Step 3**: Filter tracking numbers with label-only status (`ups_label_only_filter.py`)
+4. **Step 4**: Perform automated UPS shipment void (`ups_shipment_void_automation.py`)
 
 ---
 
@@ -95,21 +96,23 @@ crontab -e
 
 ### Pipeline Execution
 
-| Command                 | Description                                    |
-| ----------------------- | ---------------------------------------------- |
-| `make pipeline-step1`   | Run Step 1: Extract carrier invoice data       |
-| `make pipeline-step2`   | Run Step 2: Filter label-only tracking numbers |
-| `make pipeline-step3`   | Run Step 3: Automated UPS web login            |
-| `make pipeline-full`    | Run all 3 steps sequentially (foreground)      |
-| `make pipeline-full-bg` | Run all 3 steps in background                  |
+| Command                 | Description                                        |
+| ----------------------- | -------------------------------------------------- |
+| `make pipeline-step1`   | Run Step 1: Extract carrier invoice data           |
+| `make pipeline-step2`   | Run Step 2: Extract industry index logins (PeerDB) |
+| `make pipeline-step3`   | Run Step 3: Filter label-only tracking numbers     |
+| `make pipeline-step4`   | Run Step 4: Automated UPS shipment void            |
+| `make pipeline-full`    | Run all 4 steps sequentially (foreground)          |
+| `make pipeline-full-bg` | Run all 4 steps in background                      |
 
 ### Testing
 
-| Command           | Description      |
-| ----------------- | ---------------- |
-| `make test-step1` | Test Step 1 only |
-| `make test-step2` | Test Step 2 only |
-| `make test-step3` | Test Step 3 only |
+| Command           | Description               |
+| ----------------- | ------------------------- |
+| `make test-step1` | Test Step 1 only          |
+| `make test-step2` | Test Step 2 only (PeerDB) |
+| `make test-step3` | Test Step 3 only          |
+| `make test-step4` | Test Step 4 only          |
 
 ### Monitoring and Logging
 

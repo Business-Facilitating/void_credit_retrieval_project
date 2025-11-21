@@ -7,7 +7,7 @@ WORKFLOW STEP 1 of 2: Extract tracking numbers from ClickHouse
 
 This script is part of a 2-step workflow:
 1. Run this script (dlt_pipeline_examples.py) to extract data from ClickHouse
-   - Filters by transaction_date: 85-89 days ago (configurable)
+   - Filters by transaction_date using configurable date window
    - Extracts tracking numbers from carrier_carrier_invoice_original_flat_ups table
    - Creates DuckDB file: data/output/carrier_invoice_extraction.duckdb
 
@@ -16,16 +16,20 @@ This script is part of a 2-step workflow:
    - Queries UPS API for current status
 
 Example:
-    # Step 1: Extract data (85-89 days ago)
+    # Step 1: Extract data
     poetry run python src/src/dlt_pipeline_examples.py
 
     # Step 2: Query UPS API
     poetry run python src/src/ups_api.py
 
 Configuration:
-    Set in .env file:
-    - DLT_PIPELINE_START_DAYS=89 (default: 89 days ago)
-    - DLT_PIPELINE_END_DAYS=85 (default: 85 days ago)
+    Date window is controlled by centralized variables at the top of this file:
+    - TRANSACTION_DATE_START_DAYS_AGO (default: 99 days ago)
+    - TRANSACTION_DATE_END_DAYS_AGO (default: 60 days ago)
+
+    These can be overridden via .env file:
+    - DLT_PIPELINE_START_DAYS=99
+    - DLT_PIPELINE_END_DAYS=60
 
 Output:
     - DuckDB: data/output/carrier_invoice_extraction.duckdb
@@ -41,6 +45,27 @@ from typing import Any, Dict, List
 
 import dlt
 from dateutil import parser
+
+# ============================================================================
+# CONFIGURATION: Date Window for Data Extraction
+# ============================================================================
+# These variables control the transaction_date filtering window for extracting
+# carrier invoice data from ClickHouse. The extraction will include records
+# where transaction_date falls within the range:
+#   [TODAY - TRANSACTION_DATE_START_DAYS_AGO] to [TODAY - TRANSACTION_DATE_END_DAYS_AGO]
+#
+# Example: If START=89 and END=85, extracts records from 89 to 85 days ago (5-day window)
+# Example: If START=89 and END=89, extracts records from exactly 89 days ago (1-day window)
+#
+# These values can be overridden via environment variables:
+#   - DLT_PIPELINE_START_DAYS (default: 99)
+#   - DLT_PIPELINE_END_DAYS (default: 60)
+# ============================================================================
+
+TRANSACTION_DATE_START_DAYS_AGO = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
+TRANSACTION_DATE_END_DAYS_AGO = int(os.getenv("DLT_PIPELINE_END_DAYS", "79"))
+
+# ============================================================================
 
 # ClickHouse imports with fallback handling
 try:
@@ -240,6 +265,12 @@ def clickhouse_source():
 def create_carrier_invoice_resource(ch_conn, table_name):
     """Create a dlt resource for the carrier_carrier_invoice_original_flat_ups table with incremental loading"""
 
+    # Calculate the initial_value based on the transaction date window
+    # This ensures we only scan data from the target date range, not from 2020
+    initial_scan_start = datetime.utcnow() - timedelta(
+        days=TRANSACTION_DATE_START_DAYS_AGO
+    )
+
     @dlt.resource(
         name="carrier_invoice_data",
         write_disposition=os.getenv("DLT_WRITE_DISPOSITION", "append"),
@@ -247,7 +278,7 @@ def create_carrier_invoice_resource(ch_conn, table_name):
     )
     def carrier_invoice_resource(
         updated_at=dlt.sources.incremental(
-            "import_time", initial_value=datetime(2020, 1, 1)
+            "import_time", initial_value=initial_scan_start
         )
     ):
         """Extract data from ClickHouse carrier_carrier_invoice_original_flat_ups table"""
@@ -298,23 +329,38 @@ def create_carrier_invoice_resource(ch_conn, table_name):
 
                 # Window configuration (seconds). Default: 1 hour
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
-                # Date range for transaction_date - 85-89 days prior (5-day window)
-                START_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
-                END_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+                # Date range for transaction_date using centralized configuration
                 start_target_date = (
-                    datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
+                    datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
                 ).date()
                 end_target_date = (
-                    datetime.utcnow() - timedelta(days=END_CUTOFF_DAYS)
+                    datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
                 ).date()
-                cutoff_time = datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
+                cutoff_time = datetime.utcnow() - timedelta(
+                    days=TRANSACTION_DATE_START_DAYS_AGO
+                )
 
                 # Get upper bound for this run (respecting transaction_date range)
+                # Handle both date formats: M/D/YYYY and YYYY-MM-DD
+                # Convert to YYYY-MM-DD for comparison
+                start_date_str = start_target_date.strftime("%Y-%m-%d")
+                end_date_str = end_target_date.strftime("%Y-%m-%d")
+
                 max_time_rows = ch_conn.execute_query(
-                    f"SELECT max({order_time_col}) FROM {table_name} WHERE transaction_date >= %(start_target_date)s AND transaction_date <= %(end_target_date)s",
+                    f"""
+                    SELECT max({order_time_col}) FROM {table_name}
+                    WHERE (
+                        -- Match YYYY-MM-DD format
+                        (transaction_date >= %(start_date_str)s AND transaction_date <= %(end_date_str)s)
+                        OR
+                        -- Match M/D/YYYY format by converting to date
+                        (parseDateTimeBestEffortOrNull(transaction_date) >= toDate(%(start_date_str)s)
+                         AND parseDateTimeBestEffortOrNull(transaction_date) <= toDate(%(end_date_str)s))
+                    )
+                    """,
                     {
-                        "start_target_date": start_target_date,
-                        "end_target_date": end_target_date,
+                        "start_date_str": start_date_str,
+                        "end_date_str": end_date_str,
                     },
                 )
                 max_time = (
@@ -330,19 +376,25 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                     cursor_id = ""
 
                     while True:
-                        query = (
-                            f"SELECT * FROM {table_name} "
-                            f"WHERE transaction_date >= %(start_target_date)s "
-                            f"  AND transaction_date <= %(end_target_date)s "
-                            f"  AND {order_time_col} >= %(start_time)s "
-                            f"  AND {order_time_col} < %(end_time)s "
-                            f"  AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s ) "
-                            f"ORDER BY {order_tie_col} "
-                            f"LIMIT {BATCH_SIZE}"
-                        )
+                        query = f"""
+                            SELECT * FROM {table_name}
+                            WHERE (
+                                -- Match YYYY-MM-DD format
+                                (transaction_date >= %(start_date_str)s AND transaction_date <= %(end_date_str)s)
+                                OR
+                                -- Match M/D/YYYY format by converting to date
+                                (parseDateTimeBestEffortOrNull(transaction_date) >= toDate(%(start_date_str)s)
+                                 AND parseDateTimeBestEffortOrNull(transaction_date) <= toDate(%(end_date_str)s))
+                            )
+                            AND {order_time_col} >= %(start_time)s
+                            AND {order_time_col} < %(end_time)s
+                            AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s )
+                            ORDER BY {order_tie_col}
+                            LIMIT {BATCH_SIZE}
+                        """
                         parameters = {
-                            "start_target_date": start_target_date,
-                            "end_target_date": end_target_date,
+                            "start_date_str": start_date_str,
+                            "end_date_str": end_date_str,
                             "start_time": start_time,
                             "end_time": end_time,
                             "cursor_id": cursor_id,
@@ -389,28 +441,50 @@ def create_carrier_invoice_resource(ch_conn, table_name):
 
                 WINDOW_SECONDS = int(os.getenv("DLT_CLICKHOUSE_WINDOW_SECONDS", "3600"))
 
-                # Determine bounds limited by transaction_date range (85-89 days ago)
-                START_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
-                END_CUTOFF_DAYS = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+                # Determine bounds limited by transaction_date range using centralized configuration
                 start_target_date = (
-                    datetime.utcnow() - timedelta(days=START_CUTOFF_DAYS)
+                    datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
                 ).date()
                 end_target_date = (
-                    datetime.utcnow() - timedelta(days=END_CUTOFF_DAYS)
+                    datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
                 ).date()
 
+                # Handle both date formats: M/D/YYYY and YYYY-MM-DD
+                start_date_str = start_target_date.strftime("%Y-%m-%d")
+                end_date_str = end_target_date.strftime("%Y-%m-%d")
+
                 min_time_rows = ch_conn.execute_query(
-                    f"SELECT min({order_time_col}) FROM {table_name} WHERE transaction_date >= %(start_target_date)s AND transaction_date <= %(end_target_date)s",
+                    f"""
+                    SELECT min({order_time_col}) FROM {table_name}
+                    WHERE (
+                        -- Match YYYY-MM-DD format
+                        (transaction_date >= %(start_date_str)s AND transaction_date <= %(end_date_str)s)
+                        OR
+                        -- Match M/D/YYYY format by converting to date
+                        (parseDateTimeBestEffortOrNull(transaction_date) >= toDate(%(start_date_str)s)
+                         AND parseDateTimeBestEffortOrNull(transaction_date) <= toDate(%(end_date_str)s))
+                    )
+                    """,
                     {
-                        "start_target_date": start_target_date,
-                        "end_target_date": end_target_date,
+                        "start_date_str": start_date_str,
+                        "end_date_str": end_date_str,
                     },
                 )
                 max_time_rows = ch_conn.execute_query(
-                    f"SELECT max({order_time_col}) FROM {table_name} WHERE transaction_date >= %(start_target_date)s AND transaction_date <= %(end_target_date)s",
+                    f"""
+                    SELECT max({order_time_col}) FROM {table_name}
+                    WHERE (
+                        -- Match YYYY-MM-DD format
+                        (transaction_date >= %(start_date_str)s AND transaction_date <= %(end_date_str)s)
+                        OR
+                        -- Match M/D/YYYY format by converting to date
+                        (parseDateTimeBestEffortOrNull(transaction_date) >= toDate(%(start_date_str)s)
+                         AND parseDateTimeBestEffortOrNull(transaction_date) <= toDate(%(end_date_str)s))
+                    )
+                    """,
                     {
-                        "start_target_date": start_target_date,
-                        "end_target_date": end_target_date,
+                        "start_date_str": start_date_str,
+                        "end_date_str": end_date_str,
                     },
                 )
                 min_time = (
@@ -430,19 +504,25 @@ def create_carrier_invoice_resource(ch_conn, table_name):
                         cursor_id = ""
 
                         while True:
-                            query = (
-                                f"SELECT * FROM {table_name} "
-                                f"WHERE transaction_date >= %(start_target_date)s "
-                                f"  AND transaction_date <= %(end_target_date)s "
-                                f"  AND {order_time_col} >= %(start_time)s "
-                                f"  AND {order_time_col} < %(end_time)s "
-                                f"  AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s ) "
-                                f"ORDER BY {order_tie_col} "
-                                f"LIMIT {BATCH_SIZE}"
-                            )
+                            query = f"""
+                                SELECT * FROM {table_name}
+                                WHERE (
+                                    -- Match YYYY-MM-DD format
+                                    (transaction_date >= %(start_date_str)s AND transaction_date <= %(end_date_str)s)
+                                    OR
+                                    -- Match M/D/YYYY format by converting to date
+                                    (parseDateTimeBestEffortOrNull(transaction_date) >= toDate(%(start_date_str)s)
+                                     AND parseDateTimeBestEffortOrNull(transaction_date) <= toDate(%(end_date_str)s))
+                                )
+                                AND {order_time_col} >= %(start_time)s
+                                AND {order_time_col} < %(end_time)s
+                                AND ( %(cursor_id)s = '' OR {order_tie_col} > %(cursor_id)s )
+                                ORDER BY {order_tie_col}
+                                LIMIT {BATCH_SIZE}
+                            """
                             parameters = {
-                                "start_target_date": start_target_date,
-                                "end_target_date": end_target_date,
+                                "start_date_str": start_date_str,
+                                "end_date_str": end_date_str,
                                 "start_time": start_time,
                                 "end_time": end_time,
                                 "cursor_id": cursor_id,
@@ -508,13 +588,15 @@ def run_carrier_invoice_extraction(destination="duckdb", pipeline_name_suffix=""
     print("🚀 ClickHouse Carrier Invoice Data Extraction Pipeline")
     print("=" * 60)
 
-    # Show the exact target date range being used
-    start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
-    end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
-    start_target_date = (datetime.utcnow() - timedelta(days=start_cutoff_days)).date()
-    end_target_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).date()
+    # Show the exact target date range being used (from centralized configuration)
+    start_target_date = (
+        datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
+    ).date()
+    end_target_date = (
+        datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
+    ).date()
     print(
-        f"🎯 Target transaction date range: {start_target_date} to {end_target_date} ({start_cutoff_days}-{end_cutoff_days} days ago)"
+        f"🎯 Target transaction date range: {start_target_date} to {end_target_date} ({TRANSACTION_DATE_START_DAYS_AGO}-{TRANSACTION_DATE_END_DAYS_AGO} days ago)"
     )
 
     # Create pipeline with optional suffix to avoid file locks
@@ -650,14 +732,12 @@ def export_to_duckdb(pipeline):
         if os.path.exists(source_duckdb_path):
             import duckdb
 
-            # Calculate the target date range for filtering
-            start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
-            end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+            # Calculate the target date range for filtering (from centralized configuration)
             start_date_str = (
-                datetime.utcnow() - timedelta(days=start_cutoff_days)
+                datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
             ).strftime("%Y-%m-%d")
             end_date_str = (
-                datetime.utcnow() - timedelta(days=end_cutoff_days)
+                datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
             ).strftime("%Y-%m-%d")
             print(
                 f"🎯 Filtering for transaction_date range: {start_date_str} to {end_date_str}"
@@ -671,11 +751,24 @@ def export_to_duckdb(pipeline):
             try:
                 target_conn.execute(f"ATTACH '{source_duckdb_path}' AS source_db")
 
+                # Handle multiple date formats in transaction_date column:
+                # - YYYY-MM-DD (ISO format)
+                # - M/D/YYYY or MM/DD/YYYY (US format with or without leading zeros)
+                # Use COALESCE with TRY_STRPTIME to try multiple formats
+                # Use CREATE OR REPLACE to handle existing table
                 target_conn.execute(
                     f"""
-                    CREATE TABLE carrier_invoice_data AS
+                    CREATE OR REPLACE TABLE carrier_invoice_data AS
                     SELECT * FROM source_db.carrier_invoice_data.carrier_invoice_data
-                    WHERE transaction_date >= '{start_date_str}' AND transaction_date <= '{end_date_str}'
+                    WHERE (
+                        -- Try parsing with multiple formats using COALESCE
+                        -- COALESCE returns the first non-NULL value
+                        COALESCE(
+                            TRY_STRPTIME(transaction_date, '%Y-%m-%d'),  -- YYYY-MM-DD
+                            TRY_STRPTIME(transaction_date, '%m/%d/%Y'),  -- MM/DD/YYYY
+                            TRY_STRPTIME(transaction_date, '%-m/%-d/%Y')   -- M/D/YYYY (single digit)
+                        ) BETWEEN CAST('{start_date_str}' AS DATE) AND CAST('{end_date_str}' AS DATE)
+                    )
                 """
                 )
 
@@ -683,7 +776,8 @@ def export_to_duckdb(pipeline):
 
             except Exception as e:
                 print(f"❌ Error during database copy: {e}")
-                # Fallback: create empty table with same structure
+                # Fallback: drop and create empty table with same structure
+                target_conn.execute("DROP TABLE IF EXISTS carrier_invoice_data")
                 target_conn.execute(
                     """
                     CREATE TABLE carrier_invoice_data (
@@ -764,14 +858,12 @@ def extract_tracking_numbers_from_pipeline(pipeline):
     try:
         # Query tracking numbers from DuckDB
         with pipeline.sql_client() as client:
-            # Get tracking numbers for the target date range
-            start_cutoff_days = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
-            end_cutoff_days = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
+            # Get tracking numbers for the target date range (from centralized configuration)
             start_target_date = (
-                datetime.utcnow() - timedelta(days=start_cutoff_days)
+                datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
             ).date()
             end_target_date = (
-                datetime.utcnow() - timedelta(days=end_cutoff_days)
+                datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
             ).date()
 
             query = """

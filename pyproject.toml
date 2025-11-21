@@ -6,7 +6,7 @@ authors = [
     {name = "Gabriel Jerdhy Lapuz",email = "gabrieljerdhy.lapuz@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<4.0"
 dependencies = [
     "pandas (>=2.3.1,<3.0.0)",
     "polars (>=1.32.1,<2.0.0)",
@@ -19,7 +19,9 @@ dependencies = [
     "trackingmore-sdk-python (>=0.1.4) ; python_version >= \"3.10\" and python_version < \"4.0\"",
     "python-dotenv (>=1.1.1,<2.0.0)",
     "python-dateutil (>=2.8.0,<3.0.0)",
-    "playwright (>=1.55.0,<2.0.0)"
+    "playwright (>=1.55.0,<2.0.0)",
+    "requests (>=2.31.0,<3.0.0)",
+    "google-cloud-storage (>=2.10.0,<3.0.0)"
 ]
 
 [tool.poetry]

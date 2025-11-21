@@ -9,8 +9,6 @@ This script is part of the data processing workflow:
 1. Run dlt_pipeline_examples.py to extract data from ClickHouse
 2. Run this script to filter for tracking numbers with ONLY label-created status
 
-Date Range: 88-89 days ago (configurable via environment variables)
-
 Filtering Criteria:
 - The tracking number should have only ONE activity record
 - That single activity record must have the exact status description:
@@ -21,10 +19,13 @@ Usage:
     poetry run python src/src/ups_label_only_filter.py
 
 Configuration:
-    Set in .env file:
-    - UPS_FILTER_START_DAYS=89 (default: 89 days ago)
-    - UPS_FILTER_END_DAYS=88 (default: 88 days ago)
-    - This creates a 2-day window: 88-89 days ago
+    Date window is controlled by centralized variables at the top of this file:
+    - TRANSACTION_DATE_START_DAYS_AGO (default: 99 days ago)
+    - TRANSACTION_DATE_END_DAYS_AGO (default: 60 days ago)
+
+    These can be overridden via .env file:
+    - UPS_FILTER_START_DAYS=99
+    - UPS_FILTER_END_DAYS=60
 
 Output:
     - CSV: ups_label_only_tracking_range_YYYYMMDD_to_YYYYMMDD_timestamp.csv
@@ -35,6 +36,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -51,26 +53,126 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# ============================================================================
+# CREDENTIAL MANAGEMENT
+# ============================================================================
+@dataclass
+class UPSCredentials:
+    """Container for UPS API credentials"""
+
+    username: str
+    password: str
+    name: str  # Friendly name for logging (e.g., "Primary", "Secondary")
+
+
+class CredentialManager:
+    """Manages multiple UPS API credential pairs with automatic failover"""
+
+    def __init__(self):
+        self.credentials: List[UPSCredentials] = []
+        self.current_index = 0
+        self.load_credentials()
+
+    def load_credentials(self):
+        """Load all available credential pairs from environment variables"""
+        # Primary credentials
+        primary_username = os.getenv("UPS_USERNAME")
+        primary_password = os.getenv("UPS_PASSWORD")
+
+        if primary_username and primary_password:
+            self.credentials.append(
+                UPSCredentials(
+                    username=primary_username, password=primary_password, name="Primary"
+                )
+            )
+            logger.info("✅ Loaded primary UPS credentials")
+
+        # Secondary credentials
+        secondary_username = os.getenv("UPS_USERNAME_1")
+        secondary_password = os.getenv("UPS_PASSWORD_1")
+
+        if secondary_username and secondary_password:
+            self.credentials.append(
+                UPSCredentials(
+                    username=secondary_username,
+                    password=secondary_password,
+                    name="Secondary",
+                )
+            )
+            logger.info("✅ Loaded secondary UPS credentials")
+
+        if not self.credentials:
+            raise ValueError("No UPS credentials found in environment variables")
+
+        logger.info(f"📊 Total credential pairs available: {len(self.credentials)}")
+
+    def get_current_credentials(self) -> UPSCredentials:
+        """Get the currently active credentials"""
+        return self.credentials[self.current_index]
+
+    def switch_to_next_credentials(self) -> Optional[UPSCredentials]:
+        """
+        Switch to the next available credential pair
+
+        Returns:
+            Next credentials if available, None if no more credentials
+        """
+        if self.current_index + 1 < len(self.credentials):
+            self.current_index += 1
+            new_creds = self.credentials[self.current_index]
+            logger.warning(
+                f"🔄 SWITCHING CREDENTIALS: {self.credentials[self.current_index - 1].name} → {new_creds.name}"
+            )
+            return new_creds
+        else:
+            logger.error("❌ No more credential pairs available for failover")
+            return None
+
+    def has_more_credentials(self) -> bool:
+        """Check if there are more credential pairs available"""
+        return self.current_index + 1 < len(self.credentials)
+
+    def get_credential_name(self) -> str:
+        """Get the name of the current credential pair"""
+        return self.credentials[self.current_index].name
+
+
+# ============================================================================
+# CONFIGURATION: Date Window for Tracking Number Extraction
+# ============================================================================
+# These variables control the transaction_date filtering window for extracting
+# tracking numbers from the DuckDB database. The extraction will include records
+# where transaction_date falls within the range:
+#   [TODAY - TRANSACTION_DATE_START_DAYS_AGO] to [TODAY - TRANSACTION_DATE_END_DAYS_AGO]
+#
+# Example: If START=89 and END=88, extracts records from 89 to 88 days ago (2-day window)
+# Example: If START=89 and END=89, extracts records from exactly 89 days ago (1-day window)
+#
+# These values can be overridden via environment variables:
+#   - UPS_FILTER_START_DAYS (default: 99)
+#   - UPS_FILTER_END_DAYS (default: 60)
+# ============================================================================
+
+TRANSACTION_DATE_START_DAYS_AGO = int(os.getenv("UPS_FILTER_START_DAYS", "89"))
+TRANSACTION_DATE_END_DAYS_AGO = int(os.getenv("UPS_FILTER_END_DAYS", "88"))
+
+# ============================================================================
+
 # Configuration
-DUCKDB_PATH = os.getenv("DUCKDB_PATH", "carrier_invoice_extraction.duckdb")
+DUCKDB_PATH = os.getenv("DUCKDB_PATH", "data/output/carrier_invoice_extraction.duckdb")
 TABLE_NAME = "carrier_invoice_extraction.carrier_invoice_data"
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "data/output")
 
 # UPS API Configuration - Load from environment variables
 UPS_TOKEN_URL = os.getenv("UPS_TOKEN_URL")
 UPS_TRACKING_URL = os.getenv("UPS_TRACKING_URL")
-UPS_USERNAME = os.getenv("UPS_USERNAME")
-UPS_PASSWORD = os.getenv("UPS_PASSWORD")
 
 # Validate required UPS API environment variables
 if not UPS_TOKEN_URL:
     raise ValueError("UPS_TOKEN_URL environment variable is required")
 if not UPS_TRACKING_URL:
     raise ValueError("UPS_TRACKING_URL environment variable is required")
-if not UPS_USERNAME:
-    raise ValueError("UPS_USERNAME environment variable is required")
-if not UPS_PASSWORD:
-    raise ValueError("UPS_PASSWORD environment variable is required")
 
 # Target status description to filter for
 TARGET_STATUS_DESCRIPTION = (
@@ -117,35 +219,50 @@ def extract_tracking_numbers_from_duckdb(limit: int = 0) -> List[Dict[str, str]]
         return []
 
     try:
-        # Calculate dynamic date range (same logic as DLT pipeline) - 88-89 days ago
-        start_cutoff_days = int(os.getenv("UPS_FILTER_START_DAYS", "89"))
-        end_cutoff_days = int(os.getenv("UPS_FILTER_END_DAYS", "88"))
+        # Calculate dynamic date range using centralized configuration
         start_target_date = (
-            datetime.utcnow() - timedelta(days=start_cutoff_days)
+            datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
         ).date()
-        end_target_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).date()
+        end_target_date = (
+            datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
+        ).date()
 
         logger.info(
             f"🔍 Extracting tracking numbers from {TABLE_NAME} with transaction_date filtering..."
         )
         # Show date range - if start and end are the same, show "exactly X days ago"
-        if start_cutoff_days == end_cutoff_days:
+        if TRANSACTION_DATE_START_DAYS_AGO == TRANSACTION_DATE_END_DAYS_AGO:
             logger.info(
-                f"🎯 Target transaction_date: {start_target_date} (exactly {start_cutoff_days} days ago)"
+                f"🎯 Target transaction_date: {start_target_date} (exactly {TRANSACTION_DATE_START_DAYS_AGO} days ago)"
             )
         else:
             logger.info(
-                f"🎯 Target transaction_date range: {start_target_date} to {end_target_date} ({start_cutoff_days}-{end_cutoff_days} days ago)"
+                f"🎯 Target transaction_date range: {start_target_date} to {end_target_date} ({TRANSACTION_DATE_START_DAYS_AGO}-{TRANSACTION_DATE_END_DAYS_AGO} days ago)"
             )
 
+        # Format dates as strings for SQL query
+        start_date_str = start_target_date.strftime("%Y-%m-%d")
+        end_date_str = end_target_date.strftime("%Y-%m-%d")
+
         # Base query with transaction_date filtering - include account_number
+        # Handle multiple date formats in transaction_date column:
+        # - YYYY-MM-DD (ISO format)
+        # - M/D/YYYY or MM/DD/YYYY (US format with or without leading zeros)
+        # Use COALESCE with TRY_STRPTIME to try multiple formats
         base_where_clause = f"""
             WHERE tracking_number IS NOT NULL
             AND tracking_number != ''
             AND LENGTH(TRIM(tracking_number)) > 0
             AND tracking_number LIKE '1Z%'  -- UPS tracking numbers start with 1Z
-            AND transaction_date >= '{start_target_date}'
-            AND transaction_date <= '{end_target_date}'
+            AND (
+                -- Try parsing with multiple formats using COALESCE
+                -- COALESCE returns the first non-NULL value
+                COALESCE(
+                    TRY_STRPTIME(transaction_date, '%Y-%m-%d'),  -- YYYY-MM-DD
+                    TRY_STRPTIME(transaction_date, '%m/%d/%Y'),  -- MM/DD/YYYY
+                    TRY_STRPTIME(transaction_date, '%-m/%-d/%Y')   -- M/D/YYYY (single digit)
+                ) BETWEEN CAST('{start_date_str}' AS DATE) AND CAST('{end_date_str}' AS DATE)
+            )
         """
 
         if limit > 0:
@@ -195,11 +312,14 @@ def extract_tracking_numbers_from_duckdb(limit: int = 0) -> List[Dict[str, str]]
             conn.close()
 
 
-def get_ups_access_token(retry_count: int = 3) -> Optional[Tuple[str, datetime]]:
+def get_ups_access_token(
+    credentials: UPSCredentials, retry_count: int = 3
+) -> Optional[Tuple[str, datetime]]:
     """
     Get UPS API access token with retry logic
 
     Args:
+        credentials: UPS credentials to use for authentication
         retry_count: Number of retry attempts if token request fails
 
     Returns:
@@ -217,7 +337,7 @@ def get_ups_access_token(retry_count: int = 3) -> Optional[Tuple[str, datetime]]
                 UPS_TOKEN_URL,
                 data=payload,
                 headers=headers,
-                auth=(UPS_USERNAME, UPS_PASSWORD),
+                auth=(credentials.username, credentials.password),
             )
             response.raise_for_status()
 
@@ -226,13 +346,13 @@ def get_ups_access_token(retry_count: int = 3) -> Optional[Tuple[str, datetime]]
             token_timestamp = datetime.now()
 
             logger.info(
-                f"✅ Successfully obtained UPS access token at {token_timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                f"✅ Successfully obtained UPS access token ({credentials.name}) at {token_timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
             )
             return access_token, token_timestamp
 
         except Exception as e:
             logger.error(
-                f"❌ Failed to get UPS access token (attempt {attempt}/{retry_count}): {e}"
+                f"❌ Failed to get UPS access token ({credentials.name}) (attempt {attempt}/{retry_count}): {e}"
             )
             if attempt < retry_count:
                 wait_time = 5 * attempt  # Exponential backoff: 5s, 10s, 15s
@@ -267,7 +387,10 @@ def is_token_expired(token_timestamp: datetime, expiry_minutes: int = 55) -> boo
 
 
 def refresh_token_if_needed(
-    current_token: str, token_timestamp: datetime, expiry_minutes: int = 55
+    current_token: str,
+    token_timestamp: datetime,
+    credentials: UPSCredentials,
+    expiry_minutes: int = 55,
 ) -> Tuple[str, datetime]:
     """
     Refresh the UPS API access token if it's expired or about to expire
@@ -275,6 +398,7 @@ def refresh_token_if_needed(
     Args:
         current_token: Current access token
         token_timestamp: Timestamp when current token was obtained
+        credentials: UPS credentials to use for token refresh
         expiry_minutes: Minutes before considering token expired (default: 55)
 
     Returns:
@@ -288,7 +412,7 @@ def refresh_token_if_needed(
             f"🔄 Token has been active for {elapsed_minutes:.1f} minutes - refreshing..."
         )
 
-        result = get_ups_access_token()
+        result = get_ups_access_token(credentials)
         if result:
             new_token, new_timestamp = result
             logger.info("✅ Token successfully refreshed")
@@ -300,7 +424,9 @@ def refresh_token_if_needed(
     return current_token, token_timestamp
 
 
-def query_ups_tracking(tracking_number: str, access_token: str) -> Optional[Dict]:
+def query_ups_tracking(
+    tracking_number: str, access_token: str
+) -> Tuple[Optional[Dict], Optional[Dict]]:
     """
     Query UPS API for tracking information
 
@@ -309,7 +435,10 @@ def query_ups_tracking(tracking_number: str, access_token: str) -> Optional[Dict
         access_token: UPS API access token
 
     Returns:
-        UPS API response data or None if failed
+        Tuple of (response_data, error_info)
+        - response_data: UPS API response data if successful, None if failed
+        - error_info: Dictionary with error details if failed, None if successful
+                     Contains: status_code, error_type, error_message
     """
     try:
         url = UPS_TRACKING_URL + tracking_number
@@ -322,17 +451,57 @@ def query_ups_tracking(tracking_number: str, access_token: str) -> Optional[Dict
         }
 
         response = requests.get(url, headers=headers)
-        response.raise_for_status()
 
+        # Check for rate limit or other HTTP errors before raising
+        if response.status_code == 429:
+            error_info = {
+                "status_code": 429,
+                "error_type": "rate_limit",
+                "error_message": "Rate limit exceeded (HTTP 429)",
+                "response_text": response.text,
+            }
+            logger.warning(
+                f"⚠️ Rate limit hit for {tracking_number}: HTTP 429 - {response.text[:100]}"
+            )
+            return None, error_info
+
+        # Check for other client/server errors
+        if response.status_code >= 400:
+            error_info = {
+                "status_code": response.status_code,
+                "error_type": "http_error",
+                "error_message": f"HTTP {response.status_code} error",
+                "response_text": response.text,
+            }
+            logger.warning(
+                f"❌ HTTP {response.status_code} error for {tracking_number}: {response.text[:100]}"
+            )
+            return None, error_info
+
+        response.raise_for_status()
         data = response.json()
-        return data
+        return data, None
 
     except requests.RequestException as e:
+        error_info = {
+            "status_code": (
+                getattr(e.response, "status_code", None)
+                if hasattr(e, "response")
+                else None
+            ),
+            "error_type": "request_exception",
+            "error_message": str(e),
+        }
         logger.warning(f"❌ UPS API request failed for {tracking_number}: {e}")
-        return None
+        return None, error_info
     except Exception as e:
+        error_info = {
+            "status_code": None,
+            "error_type": "unexpected_error",
+            "error_message": str(e),
+        }
         logger.error(f"❌ Unexpected error querying {tracking_number}: {e}")
-        return None
+        return None, error_info
 
 
 def check_label_only_status(ups_response: Dict) -> Tuple[bool, str]:
@@ -388,15 +557,20 @@ def check_label_only_status(ups_response: Dict) -> Tuple[bool, str]:
 
 
 def process_tracking_numbers(
-    tracking_numbers: List[Dict[str, str]], access_token: str, token_timestamp: datetime
+    tracking_numbers: List[Dict[str, str]],
+    access_token: str,
+    token_timestamp: datetime,
+    credential_manager: CredentialManager,
 ) -> Dict:
     """
     Process tracking numbers and filter for label-only status with automatic token refresh
+    and credential rotation on rate limit errors
 
     Args:
         tracking_numbers: List of dictionaries containing tracking_number and account_number
         access_token: UPS API access token
         token_timestamp: Timestamp when the token was obtained
+        credential_manager: CredentialManager instance for credential rotation
 
     Returns:
         Dictionary with results and statistics
@@ -410,13 +584,18 @@ def process_tracking_numbers(
         "total_excluded": 0,
         "total_errors": 0,
         "token_refreshes": 0,
+        "credential_switches": 0,
     }
 
     logger.info(f"🔄 Processing {len(tracking_numbers)} tracking numbers...")
+    logger.info(
+        f"🔑 Starting with {credential_manager.get_credential_name()} credentials"
+    )
 
     # Track current token and timestamp
     current_token = access_token
     current_token_timestamp = token_timestamp
+    current_credentials = credential_manager.get_current_credentials()
 
     for i, tracking_item in enumerate(tracking_numbers, 1):
         tracking_number = tracking_item["tracking_number"]
@@ -431,7 +610,7 @@ def process_tracking_numbers(
 
         # Check and refresh token if needed before each API call
         current_token, current_token_timestamp = refresh_token_if_needed(
-            current_token, current_token_timestamp
+            current_token, current_token_timestamp, current_credentials
         )
 
         # Track if token was refreshed
@@ -439,24 +618,116 @@ def process_tracking_numbers(
             results["token_refreshes"] += 1
 
         # Query UPS API with current (possibly refreshed) token
-        ups_response = query_ups_tracking(tracking_number, current_token)
+        ups_response, error_info = query_ups_tracking(tracking_number, current_token)
         results["total_processed"] += 1
 
         # Calculate elapsed time for this tracking number
         tracking_elapsed = time.time() - tracking_start_time
 
-        if ups_response is None:
-            results["api_errors"].append(
-                {
-                    "tracking_number": tracking_number,
-                    "account_number": account_number,
-                    "error": "API request failed",
-                    "processing_time_seconds": tracking_elapsed,
-                }
-            )
-            results["total_errors"] += 1
-            logger.info(f"   ⏱️  Processing time: {tracking_elapsed:.2f} seconds")
-            continue
+        # Handle API errors and credential rotation
+        if ups_response is None and error_info is not None:
+            error_type = error_info.get("error_type", "unknown")
+            error_message = error_info.get("error_message", "Unknown error")
+
+            # Check if this is a rate limit error or any API error that should trigger rotation
+            if error_type in ["rate_limit", "http_error"]:
+                logger.warning(f"⚠️ API error detected ({error_type}): {error_message}")
+
+                # Try to switch to next credential pair
+                if credential_manager.has_more_credentials():
+                    next_credentials = credential_manager.switch_to_next_credentials()
+                    if next_credentials:
+                        results["credential_switches"] += 1
+                        logger.info(
+                            f"🔄 Switched to {next_credentials.name} credentials"
+                        )
+
+                        # Get new token with new credentials
+                        logger.info(
+                            "🔑 Obtaining new access token with new credentials..."
+                        )
+                        token_result = get_ups_access_token(next_credentials)
+
+                        if token_result:
+                            current_token, current_token_timestamp = token_result
+                            current_credentials = next_credentials
+                            logger.info(
+                                "✅ Successfully obtained token with new credentials"
+                            )
+
+                            # Retry the current tracking number with new credentials
+                            logger.info(
+                                f"🔄 Retrying {tracking_number} with new credentials..."
+                            )
+                            ups_response, error_info = query_ups_tracking(
+                                tracking_number, current_token
+                            )
+
+                            # If still failed, log and continue
+                            if ups_response is None:
+                                results["api_errors"].append(
+                                    {
+                                        "tracking_number": tracking_number,
+                                        "account_number": account_number,
+                                        "error": f"Failed even after credential switch: {error_info.get('error_message', 'Unknown')}",
+                                        "error_type": error_info.get("error_type"),
+                                        "status_code": error_info.get("status_code"),
+                                        "processing_time_seconds": tracking_elapsed,
+                                    }
+                                )
+                                results["total_errors"] += 1
+                                logger.info(
+                                    f"   ⏱️  Processing time: {tracking_elapsed:.2f} seconds"
+                                )
+                                continue
+                        else:
+                            logger.error("❌ Failed to get token with new credentials")
+                            results["api_errors"].append(
+                                {
+                                    "tracking_number": tracking_number,
+                                    "account_number": account_number,
+                                    "error": "Failed to get token after credential switch",
+                                    "processing_time_seconds": tracking_elapsed,
+                                }
+                            )
+                            results["total_errors"] += 1
+                            logger.info(
+                                f"   ⏱️  Processing time: {tracking_elapsed:.2f} seconds"
+                            )
+                            continue
+                else:
+                    logger.error(
+                        "❌ No more credentials available for rotation - continuing with current credentials"
+                    )
+                    results["api_errors"].append(
+                        {
+                            "tracking_number": tracking_number,
+                            "account_number": account_number,
+                            "error": error_message,
+                            "error_type": error_type,
+                            "status_code": error_info.get("status_code"),
+                            "processing_time_seconds": tracking_elapsed,
+                        }
+                    )
+                    results["total_errors"] += 1
+                    logger.info(
+                        f"   ⏱️  Processing time: {tracking_elapsed:.2f} seconds"
+                    )
+                    continue
+            else:
+                # Non-rate-limit error - just log and continue
+                results["api_errors"].append(
+                    {
+                        "tracking_number": tracking_number,
+                        "account_number": account_number,
+                        "error": error_message,
+                        "error_type": error_type,
+                        "processing_time_seconds": tracking_elapsed,
+                    }
+                )
+                results["total_errors"] += 1
+                logger.info(f"   ⏱️  Processing time: {tracking_elapsed:.2f} seconds")
+                continue
 
         # Check if it matches label-only criteria
         is_label_only, reason = check_label_only_status(ups_response)
@@ -505,13 +776,13 @@ def save_results(results: Dict, timestamp: str) -> Tuple[str, str]:
     Returns:
         Tuple of (json_filepath, csv_filepath)
     """
-    # Calculate date range for filename (same logic as DLT pipeline) - exactly 89 days ago
-    start_cutoff_days = int(os.getenv("UPS_FILTER_START_DAYS", "89"))
-    end_cutoff_days = int(os.getenv("UPS_FILTER_END_DAYS", "88"))
-    start_date = (datetime.utcnow() - timedelta(days=start_cutoff_days)).strftime(
-        "%Y%m%d"
-    )
-    end_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).strftime("%Y%m%d")
+    # Calculate date range for filename using centralized configuration
+    start_date = (
+        datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
+    ).strftime("%Y%m%d")
+    end_date = (
+        datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
+    ).strftime("%Y%m%d")
 
     # Save complete results to JSON
     json_filename = (
@@ -576,6 +847,7 @@ def print_summary(results: Dict):
     logger.info(f"❌ Excluded: {results['total_excluded']}")
     logger.info(f"🚫 API Errors: {results['total_errors']}")
     logger.info(f"🔄 Token Refreshes: {results.get('token_refreshes', 0)}")
+    logger.info(f"🔑 Credential Switches: {results.get('credential_switches', 0)}")
 
     if results["total_processed"] > 0:
         success_rate = (results["total_label_only"] / results["total_processed"]) * 100
@@ -621,31 +893,41 @@ def print_summary(results: Dict):
 
 
 def main():
-    """Main function to run the label-only filter with automatic token refresh"""
+    """Main function to run the label-only filter with automatic token refresh and credential rotation"""
     logger.info("🚀 Starting UPS Label-Only Tracking Filter")
     logger.info("=" * 60)
 
-    # Show the exact target date range being used (same as DLT pipeline) - 88-89 days ago
-    start_cutoff_days = int(os.getenv("UPS_FILTER_START_DAYS", "89"))
-    end_cutoff_days = int(os.getenv("UPS_FILTER_END_DAYS", "88"))
-    start_target_date = (datetime.utcnow() - timedelta(days=start_cutoff_days)).date()
-    end_target_date = (datetime.utcnow() - timedelta(days=end_cutoff_days)).date()
+    # Initialize credential manager
+    logger.info("🔑 Step 1: Initializing credential manager...")
+    try:
+        credential_manager = CredentialManager()
+    except ValueError as e:
+        logger.error(f"❌ Failed to initialize credentials: {e}")
+        return
+
+    # Show the exact target date range being used (from centralized configuration)
+    start_target_date = (
+        datetime.utcnow() - timedelta(days=TRANSACTION_DATE_START_DAYS_AGO)
+    ).date()
+    end_target_date = (
+        datetime.utcnow() - timedelta(days=TRANSACTION_DATE_END_DAYS_AGO)
+    ).date()
 
     # Show date range - if start and end are the same, show "exactly X days ago"
-    if start_cutoff_days == end_cutoff_days:
+    if TRANSACTION_DATE_START_DAYS_AGO == TRANSACTION_DATE_END_DAYS_AGO:
         logger.info(
-            f"🎯 Target transaction_date: {start_target_date} (exactly {start_cutoff_days} days ago)"
+            f"🎯 Target transaction_date: {start_target_date} (exactly {TRANSACTION_DATE_START_DAYS_AGO} days ago)"
         )
     else:
         logger.info(
-            f"🎯 Target transaction_date range: {start_target_date} to {end_target_date} ({start_cutoff_days}-{end_cutoff_days} days ago)"
+            f"🎯 Target transaction_date range: {start_target_date} to {end_target_date} ({TRANSACTION_DATE_START_DAYS_AGO}-{TRANSACTION_DATE_END_DAYS_AGO} days ago)"
         )
 
     # Generate timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Extract tracking numbers from DuckDB
-    logger.info("📊 Step 1: Extracting tracking numbers from DuckDB...")
+    logger.info("📊 Step 2: Extracting tracking numbers from DuckDB...")
     tracking_numbers = extract_tracking_numbers_from_duckdb(
         limit=0
     )  # Process ALL tracking numbers in the date range (limit=0 means no limit)
@@ -661,9 +943,10 @@ def main():
         logger.info("✅ Exiting gracefully - no action needed.")
         return
 
-    # Get UPS access token with timestamp
-    logger.info("🔑 Step 2: Getting UPS API access token...")
-    token_result = get_ups_access_token()
+    # Get UPS access token with timestamp using primary credentials
+    logger.info("🔑 Step 3: Getting UPS API access token...")
+    current_credentials = credential_manager.get_current_credentials()
+    token_result = get_ups_access_token(current_credentials)
 
     if not token_result:
         logger.error("❌ Failed to get UPS access token. Exiting.")
@@ -671,13 +954,18 @@ def main():
 
     access_token, token_timestamp = token_result
     logger.info(f"🔑 Token will auto-refresh every 55 minutes to prevent expiration")
+    logger.info(
+        f"🔄 Credential rotation enabled - will switch on rate limit or API errors"
+    )
 
-    # Process tracking numbers with automatic token refresh
-    logger.info("🔄 Step 3: Processing tracking numbers...")
-    results = process_tracking_numbers(tracking_numbers, access_token, token_timestamp)
+    # Process tracking numbers with automatic token refresh and credential rotation
+    logger.info("🔄 Step 4: Processing tracking numbers...")
+    results = process_tracking_numbers(
+        tracking_numbers, access_token, token_timestamp, credential_manager
+    )
 
     # Save results
-    logger.info("💾 Step 4: Saving results...")
+    logger.info("💾 Step 5: Saving results...")
     json_filepath, csv_filepath = save_results(results, timestamp)
 
     # Print summary
