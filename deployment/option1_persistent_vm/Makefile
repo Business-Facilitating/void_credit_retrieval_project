@@ -225,7 +225,7 @@ pipeline-step4:
 		export DISPLAY=:0; \
 	fi; \
 	echo "$(GREEN)✅ Using display: $$DISPLAY$(NC)"; \
-	$(POETRY_RUN) $(SCRIPT_VOID_AUTOMATION) --headed 2>&1 | tee $(LOG_DIR)/step4_void_automation_$(TIMESTAMP).log; \
+	OUTPUT_DIR=$(DATA_OUTPUT_DIR) DUCKDB_PATH=$(DATA_OUTPUT_DIR)/carrier_invoice_extraction.duckdb PEERDB_DUCKDB_PATH=$(PROJECT_ROOT)/peerdb_industry_index_logins.duckdb $(POETRY_RUN) $(SCRIPT_VOID_AUTOMATION) --headed 2>&1 | tee $(LOG_DIR)/step4_void_automation_$(TIMESTAMP).log; \
 	EXIT_CODE=$$?; \
 	if [ $$EXIT_CODE -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 4 completed successfully$(NC)"; \
