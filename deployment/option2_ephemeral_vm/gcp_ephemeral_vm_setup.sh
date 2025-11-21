@@ -1,6 +1,7 @@
 #!/bin/bash
 # GSR Automation - GCP Ephemeral VM Setup
-# This script creates a VM, runs the pipeline, and destroys the VM
+# This script creates a VM, runs the 4-step pipeline, and destroys the VM
+# Pipeline: ClickHouse extraction → PeerDB extraction → Label filter → UPS void automation
 # Designed to be triggered by Cloud Scheduler every other day
 #
 # Author: Gabriel Jerdhy Lapuz
@@ -95,7 +96,23 @@ echo "=========================================="
 # Update system
 echo "Updating system packages..."
 apt-get update -qq
-apt-get install -y python3 python3-pip python3-venv git curl wget xvfb
+
+# Install GUI/Desktop environment for headed browser automation
+echo "Installing GUI components for headed mode..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    xserver-xorg \
+    x11-xserver-utils \
+    xfce4 \
+    xfce4-terminal \
+    dbus-x11 \
+    x11vnc \
+    xvfb \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    curl \
+    wget
 
 # Install system dependencies for Playwright
 echo "Installing Playwright dependencies..."
@@ -104,6 +121,30 @@ apt-get install -y \
     libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite0 libxdamage1 \
     libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
     libasound2 libatspi2.0-0 libxshmfence1
+
+# Configure X11 display server
+echo "Configuring X11 display server..."
+export DISPLAY=:0
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
+
+# Start Xvfb (virtual framebuffer) for headed mode
+echo "Starting Xvfb display server..."
+Xvfb :0 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /var/log/xvfb.log 2>&1 &
+XVFB_PID=$!
+sleep 3
+
+# Verify display is available
+if xdpyinfo -display :0 >/dev/null 2>&1; then
+    echo "✅ X11 display server started successfully (PID: $XVFB_PID)"
+else
+    echo "⚠️  Warning: X11 display server may not be fully initialized"
+fi
+
+# Start window manager (XFCE) for proper window handling
+echo "Starting XFCE window manager..."
+startxfce4 > /var/log/xfce4.log 2>&1 &
+sleep 2
 
 # Install Poetry
 echo "Installing Poetry..."

@@ -1,8 +1,8 @@
 # GSR Automation - Ephemeral VM Deployment Guide
 
-**Author:** Gabriel Jerdhy Lapuz  
-**Project:** gsr_automation  
-**Last Updated:** 2025-11-11
+**Author:** Gabriel Jerdhy Lapuz
+**Project:** gsr_automation
+**Last Updated:** 2025-11-20
 
 ---
 
@@ -24,11 +24,11 @@ This guide shows how to deploy GSR Automation using **ephemeral VMs** on Google 
 
 ### Cost Comparison
 
-| Approach | Monthly Cost |
-|----------|--------------|
-| **Persistent VM (e2-medium, 24/7)** | ~$25-30/month |
-| **Ephemeral VM (e2-medium, 15 min every other day)** | ~$0.50-1/month |
-| **Savings** | **~95% cheaper!** |
+| Approach                                             | Monthly Cost      |
+| ---------------------------------------------------- | ----------------- |
+| **Persistent VM (e2-medium, 24/7)**                  | ~$25-30/month     |
+| **Ephemeral VM (e2-medium, 15 min every other day)** | ~$0.50-1/month    |
+| **Savings**                                          | **~95% cheaper!** |
 
 ---
 
@@ -42,11 +42,13 @@ Cloud Function (trigger-gsr-automation)
 Create Compute Engine VM (ephemeral)
     ↓
 VM Startup Script:
-    1. Install dependencies (Python, Poetry, Xvfb, Playwright)
-    2. Clone GitHub repository
-    3. Fetch .env from Secret Manager
-    4. Install project dependencies
-    5. Run pipeline: make pipeline-full
+    1. Install GUI components (X11, XFCE desktop, Xvfb)
+    2. Install dependencies (Python, Poetry, Playwright)
+    3. Configure X11 display server for headed browser mode
+    4. Clone GitHub repository
+    5. Fetch .env from Secret Manager
+    6. Install project dependencies
+    7. Run pipeline: make pipeline-full
        ├── Step 1: dlt_pipeline_examples.py (ClickHouse extraction)
        ├── Step 2: ups_label_only_filter.py (Label-only filter)
        └── Step 3: ups_shipment_void_automation.py (UPS void automation)
@@ -127,6 +129,7 @@ chmod +x deploy_ephemeral.sh
 ```
 
 The script will:
+
 - ✅ Enable required GCP APIs
 - ✅ Create service account with permissions
 - ✅ Store .env in Secret Manager
@@ -178,6 +181,7 @@ chmod 600 ~/.vnc/passwd
 ```
 
 Then connect using a VNC client:
+
 ```bash
 # Create SSH tunnel
 gcloud compute ssh gsr-automation-runner-TIMESTAMP \
@@ -206,7 +210,125 @@ cd /opt/gsr_automation
 poetry run python src/src/ups_shipment_void_automation.py --headed
 ```
 
-**Note:** For production, keep using headless mode (Xvfb) as it's more reliable and doesn't require display setup.
+---
+
+## 🖥️ Headed Mode Configuration (GUI-Enabled VMs)
+
+### Overview
+
+The deployment is configured to run browser automation in **headed mode** (visible browser with GUI) instead of traditional headless mode. This configuration provides better reliability for UPS shipment void automation.
+
+### Why Headed Mode?
+
+- ✅ **Better compatibility** with UPS website automation
+- ✅ **Improved reliability** for complex web interactions
+- ✅ **Easier debugging** when issues occur
+- ✅ **More realistic browser behavior** reduces detection risk
+
+### How It Works
+
+1. **VM Provisioning**: The ephemeral VM is created with GUI support
+
+   - Installs X11 display server (Xorg)
+   - Installs XFCE desktop environment
+   - Installs Xvfb (virtual framebuffer) for virtual display
+
+2. **Display Configuration**: On VM startup
+
+   - Starts Xvfb on display `:0` with 1920x1080 resolution
+   - Starts XFCE window manager for proper window handling
+   - Sets `DISPLAY=:0` environment variable
+
+3. **Browser Automation**: UPS void automation runs with `--headed` flag
+   - Browser windows are created on the virtual display
+   - All interactions are visible (though not to human eyes)
+   - Screenshots are captured for debugging
+
+### Technical Details
+
+**Installed Components:**
+
+- `xserver-xorg` - X11 display server
+- `x11-xserver-utils` - X11 utilities (including xdpyinfo)
+- `xfce4` - Lightweight desktop environment
+- `xfce4-terminal` - Terminal emulator
+- `dbus-x11` - D-Bus session for X11
+- `x11vnc` - VNC server (optional, for remote viewing)
+- `xvfb` - Virtual framebuffer X server
+
+**Display Configuration:**
+
+```bash
+# Display server runs on :0
+export DISPLAY=:0
+
+# Xvfb configuration
+Xvfb :0 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+```
+
+**Browser Launch:**
+
+```python
+# Browser runs in headed mode (non-headless)
+browser = playwright.chromium.launch(
+    headless=False,  # Headed mode enabled
+    args=[
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+    ],
+)
+```
+
+### Cost Impact
+
+Headed mode has minimal cost impact:
+
+- **Additional packages**: ~100MB extra disk space
+- **Runtime overhead**: ~50-100MB extra RAM usage
+- **VM cost**: Same as before (~$0.50-1/month)
+
+The e2-medium instance (2 vCPU, 4GB RAM) has sufficient resources for headed mode.
+
+### Debugging Headed Mode
+
+If you need to view the browser during execution:
+
+**Option 1: VNC Access (Recommended)**
+
+```bash
+# On the VM, start VNC server
+x11vnc -display :0 -bg -nopw -listen localhost -xkb
+
+# Create SSH tunnel from your local machine
+gcloud compute ssh gsr-automation-runner-TIMESTAMP \
+    --zone=us-central1-a \
+    --ssh-flag="-L 5900:localhost:5900"
+
+# Connect VNC client to localhost:5900
+```
+
+**Option 2: Screenshots**
+The automation automatically saves screenshots to `data/output/` directory, which are uploaded to Cloud Storage after pipeline completion.
+
+### Switching Back to Headless Mode
+
+If you need to switch back to headless mode:
+
+1. **Update Makefile** (`deployment/option1_persistent_vm/Makefile`):
+
+   ```makefile
+   # Change line 181 from:
+   $(POETRY_RUN) $(SCRIPT_VOID_AUTOMATION) --headed
+   # To:
+   $(POETRY_RUN) $(SCRIPT_VOID_AUTOMATION) --headless
+   ```
+
+2. **Simplify VM Setup** (optional):
+   - Remove GUI packages from startup script
+   - Keep only Xvfb for headless operation
+
+**Note:** Current configuration uses headed mode because it provides better reliability for UPS automation.
 
 ---
 
@@ -217,11 +339,13 @@ poetry run python src/src/ups_shipment_void_automation.py --headed
 The pipeline uses separate date range configurations for each step:
 
 **Step 1 (ClickHouse Extraction):**
+
 - Environment variables: `DLT_PIPELINE_START_DAYS=89`, `DLT_PIPELINE_END_DAYS=85`
 - Date range: 85-89 days ago (5-day window)
 - Example: August 13-17, 2025
 
 **Step 2 (UPS Tracking Filter):**
+
 - Environment variables: `UPS_FILTER_START_DAYS=89`, `UPS_FILTER_END_DAYS=88`
 - Date range: 88-89 days ago (2-day window)
 - Example: August 13-14, 2025
@@ -231,11 +355,13 @@ Both steps filter based on the `transaction_date` column.
 ### Submit Flag Behavior
 
 **Default Configuration (Safe):**
+
 ```makefile
 $(POETRY_RUN) $(SCRIPT_VOID_AUTOMATION) --headless
 ```
 
 This will:
+
 - ✅ Fill out all dispute forms
 - ✅ Take screenshots
 - ❌ **NOT submit** the forms
@@ -270,6 +396,7 @@ Then commit and push the change.
 ```
 
 To change schedule:
+
 ```bash
 gcloud scheduler jobs update http gsr-automation-scheduler \
     --location=us-central1 \
@@ -358,6 +485,7 @@ gcloud scheduler jobs run gsr-automation-scheduler --location=us-central1
 ### Issue: Deployment script fails
 
 **Check:**
+
 ```bash
 # Verify gcloud is installed and authenticated
 gcloud auth list
@@ -372,6 +500,7 @@ ls -la .env
 ### Issue: Cloud Function fails to create VM
 
 **Check:**
+
 ```bash
 # View function logs
 gcloud functions logs read trigger-gsr-automation --gen2 --region=us-central1 --limit=50
@@ -385,6 +514,7 @@ gcloud projects get-iam-policy YOUR_PROJECT_ID \
 ### Issue: Pipeline fails on VM
 
 **Check:**
+
 ```bash
 # Get VM serial output
 gcloud compute instances get-serial-port-output VM_NAME --zone=us-central1-a
@@ -396,6 +526,7 @@ gcloud secrets versions access latest --secret=gsr-automation-env
 ### Issue: No results in Cloud Storage
 
 **Check:**
+
 ```bash
 # Verify bucket exists
 gsutil ls gs://gsr-automation-results/
@@ -413,15 +544,15 @@ gcloud compute instances get-serial-port-output VM_NAME --zone=us-central1-a | g
 
 ### Monthly Cost Estimate (Every Other Day)
 
-| Component | Usage | Cost |
-|-----------|-------|------|
-| **Compute Engine** | 15 runs × 15 min × $0.033/hour | ~$0.25 |
-| **Cloud Function** | 15 invocations × $0.40/million | ~$0.01 |
-| **Cloud Scheduler** | 1 job × $0.10/job | $0.10 |
-| **Cloud Storage** | 5GB × $0.02/GB | $0.10 |
-| **Secret Manager** | 15 accesses × $0.03/10k | ~$0.01 |
-| **Network Egress** | Minimal | ~$0.03 |
-| **TOTAL** | | **~$0.50/month** |
+| Component           | Usage                          | Cost             |
+| ------------------- | ------------------------------ | ---------------- |
+| **Compute Engine**  | 15 runs × 15 min × $0.033/hour | ~$0.25           |
+| **Cloud Function**  | 15 invocations × $0.40/million | ~$0.01           |
+| **Cloud Scheduler** | 1 job × $0.10/job              | $0.10            |
+| **Cloud Storage**   | 5GB × $0.02/GB                 | $0.10            |
+| **Secret Manager**  | 15 accesses × $0.03/10k        | ~$0.01           |
+| **Network Egress**  | Minimal                        | ~$0.03           |
+| **TOTAL**           |                                | **~$0.50/month** |
 
 **Savings vs Persistent VM:** ~$25-30/month → **95% cheaper!**
 
@@ -449,12 +580,14 @@ gcloud compute instances get-serial-port-output VM_NAME --zone=us-central1-a | g
 ### Pipeline Steps
 
 **Step 1: Extract Carrier Invoice Data**
+
 - Script: `src/src/dlt_pipeline_examples.py`
 - Extracts data from ClickHouse where `transaction_date` is 85-89 days ago
 - Uses DLT (data load tool) for incremental loading
 - Outputs: DuckDB file with carrier invoice data
 
 **Step 2: Filter Label-Only Tracking Numbers**
+
 - Script: `src/src/ups_label_only_filter.py`
 - Filters tracking numbers where `transaction_date` is 88-89 days ago
 - Uses UPS Tracking API to check status
@@ -462,6 +595,7 @@ gcloud compute instances get-serial-port-output VM_NAME --zone=us-central1-a | g
 - Outputs: CSV and JSON files with filtered tracking numbers
 
 **Step 3: Automated UPS Shipment Void**
+
 - Script: `src/src/ups_shipment_void_automation.py`
 - Logs into UPS accounts using credentials from PeerDB
 - Navigates to Billing Center
@@ -495,9 +629,10 @@ You now have a **fully automated, cost-effective** deployment that:
 ✅ Executes the 3-step pipeline  
 ✅ Stores results in Cloud Storage  
 ✅ Deletes the VM after completion  
-✅ Costs ~$0.50-1/month instead of ~$25-30/month  
+✅ Costs ~$0.50-1/month instead of ~$25-30/month
 
 **Next Steps:**
+
 1. Test the setup with a manual trigger
 2. Monitor the first few scheduled runs
 3. Adjust VM size and schedule as needed
@@ -507,4 +642,3 @@ You now have a **fully automated, cost-effective** deployment that:
 ---
 
 **Questions or Issues?** Check the troubleshooting section or review Cloud Function/Scheduler logs.
-

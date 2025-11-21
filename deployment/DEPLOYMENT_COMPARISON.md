@@ -1,23 +1,26 @@
 # GSR Automation - Deployment Options Comparison
 
-**Author:** Gabriel Jerdhy Lapuz  
-**Project:** gsr_automation  
-**Last Updated:** 2025-10-30
+**Author:** Gabriel Jerdhy Lapuz
+**Project:** gsr_automation
+**Last Updated:** 2025-11-20
 
 ---
 
 ## 📊 Quick Comparison
 
-| Feature | Option 1: Persistent VM | Option 2: Ephemeral VM ⭐ |
-|---------|------------------------|--------------------------|
-| **Cost/Month** | ~$25-30 | ~$0.50-1 |
-| **Savings** | Baseline | **95% cheaper** |
-| **VM Uptime** | 24/7 (720 hours) | ~4 hours/month |
-| **Setup Complexity** | Medium | Low (automated script) |
-| **Maintenance** | Manual updates | Auto-fresh environment |
-| **Best For** | Frequent runs | Infrequent runs |
-| **Scalability** | Limited | Excellent |
-| **Environment** | Can drift over time | Always fresh |
+| Feature              | Option 1: Persistent VM | Option 2: Ephemeral VM ⭐ |
+| -------------------- | ----------------------- | ------------------------- |
+| **Cost/Month**       | ~$25-30                 | ~$0.50-1                  |
+| **Savings**          | Baseline                | **95% cheaper**           |
+| **VM Uptime**        | 24/7 (720 hours)        | ~4 hours/month            |
+| **Setup Complexity** | Medium                  | Low (automated script)    |
+| **Maintenance**      | Manual updates          | Auto-fresh environment    |
+| **Best For**         | Frequent runs           | Infrequent runs           |
+| **Scalability**      | Limited                 | Excellent                 |
+| **Environment**      | Can drift over time     | Always fresh              |
+| **Browser Mode**     | Headed (GUI-enabled)    | Headed (GUI-enabled)      |
+
+> **Note:** Both deployment options now use **headed mode** (visible browser with GUI) for better reliability with UPS automation. The browser runs on a virtual X11 display (Xvfb) with XFCE window manager.
 
 ---
 
@@ -26,6 +29,7 @@
 ### Option 1: Persistent VM with Cron
 
 **Monthly Costs:**
+
 - Compute Engine (e2-medium, 24/7): $24.27
 - Storage (20GB boot disk): $0.80
 - Network egress: ~$0.50
@@ -36,6 +40,7 @@
 ### Option 2: Ephemeral VM with Cloud Scheduler
 
 **Monthly Costs (15 runs):**
+
 - Compute Engine (15 runs × 15 min): $0.25
 - Cloud Function (15 invocations): $0.01
 - Cloud Scheduler (1 job): $0.10
@@ -58,7 +63,7 @@
 ✅ You have **complex dependencies** that take long to install  
 ✅ You need **real-time monitoring** and manual intervention  
 ✅ You want to **SSH into the VM** for debugging  
-✅ You have **other workloads** to run on the same VM  
+✅ You have **other workloads** to run on the same VM
 
 ### Choose Option 2 (Ephemeral VM) If: ⭐
 
@@ -67,7 +72,7 @@
 ✅ You want to **minimize costs** significantly  
 ✅ You prefer **serverless/managed** infrastructure  
 ✅ You want **isolated, reproducible** runs  
-✅ You want **automatic cleanup** and no VM management  
+✅ You want **automatic cleanup** and no VM management
 
 **For your use case (every other day):** **Option 2 is strongly recommended!**
 
@@ -205,10 +210,10 @@ Cost: Only pay for ~15 minutes of compute
 
 **Example: Running 5 different accounts**
 
-| Approach | Cost | Complexity |
-|----------|------|------------|
-| Option 1 | 5 VMs × $25 = **$125/month** | High |
-| Option 2 | 5 jobs × $1 = **$5/month** | Low |
+| Approach | Cost                         | Complexity |
+| -------- | ---------------------------- | ---------- |
+| Option 1 | 5 VMs × $25 = **$125/month** | High       |
+| Option 2 | 5 jobs × $1 = **$5/month**   | Low        |
 
 ---
 
@@ -240,11 +245,13 @@ Cost: Only pay for ~15 minutes of compute
 ### Option 1: Debugging
 
 **Pros:**
+
 - Can SSH into VM
 - Can run commands interactively
 - Can inspect files directly
 
 **Cons:**
+
 - Need to maintain SSH access
 - Environment can drift
 - Harder to reproduce issues
@@ -252,12 +259,14 @@ Cost: Only pay for ~15 minutes of compute
 ### Option 2: Debugging
 
 **Pros:**
+
 - Serial console logs available
 - Cloud Storage has all results
 - Reproducible (same environment every time)
 - Cloud Function logs show all triggers
 
 **Cons:**
+
 - Can't SSH into ephemeral VM (but can view serial output)
 - Need to trigger new run to test changes
 
@@ -265,12 +274,12 @@ Cost: Only pay for ~15 minutes of compute
 
 ## 📊 Performance Comparison
 
-| Metric | Option 1 | Option 2 |
-|--------|----------|----------|
-| **Pipeline Runtime** | 5-15 min | 5-15 min (same) |
-| **Startup Time** | Instant (VM ready) | +2-3 min (VM creation) |
-| **Total Time** | 5-15 min | 7-18 min |
-| **Consistency** | Can vary (drift) | Always consistent |
+| Metric               | Option 1           | Option 2               |
+| -------------------- | ------------------ | ---------------------- |
+| **Pipeline Runtime** | 5-15 min           | 5-15 min (same)        |
+| **Startup Time**     | Instant (VM ready) | +2-3 min (VM creation) |
+| **Total Time**       | 5-15 min           | 7-18 min               |
+| **Consistency**      | Can vary (drift)   | Always consistent      |
 
 **Note:** Option 2 adds 2-3 minutes for VM creation, but this is negligible for infrequent runs.
 
@@ -304,26 +313,31 @@ Cost: Only pay for ~15 minutes of compute
 ### Already Using Option 1? Migrate to Option 2:
 
 1. **Backup your .env file**
+
    ```bash
    scp your-vm:.env ./env-backup
    ```
 
 2. **Run Option 2 deployment**
+
    ```bash
    ./deploy_ephemeral.sh
    ```
 
 3. **Test Option 2**
+
    ```bash
    gcloud scheduler jobs run gsr-automation-scheduler --location=us-central1
    ```
 
 4. **Verify results**
+
    ```bash
    gsutil ls gs://gsr-automation-results/runs/
    ```
 
 5. **Delete persistent VM**
+
    ```bash
    gcloud compute instances delete your-vm-name --zone=your-zone
    ```
@@ -335,11 +349,13 @@ Cost: Only pay for ~15 minutes of compute
 ## 📚 Documentation Links
 
 ### Option 1 Documentation
+
 - [Deployment Quick Reference](docs/DEPLOYMENT_QUICK_REFERENCE.md)
 - [Makefile & Cron Guide](docs/MAKEFILE_CRON_DEPLOYMENT.md)
 - [Deployment Summary](docs/DEPLOYMENT_SUMMARY.md)
 
 ### Option 2 Documentation
+
 - [Quick Start Guide](OPTION2_QUICK_START.md) ⭐ **Start here!**
 - [Detailed Guide](docs/GCP_EPHEMERAL_VM_DEPLOYMENT.md)
 - [Cloud Function Code](cloud_function/main.py)
@@ -354,6 +370,7 @@ Cost: Only pay for ~15 minutes of compute
 # Choose Option 2: Ephemeral VM with Cloud Scheduler ⭐
 
 **Why:**
+
 - ✅ **95% cost savings** ($25-30/month → $0.50-1/month)
 - ✅ **Zero maintenance** (auto-fresh environment)
 - ✅ **Better security** (Secret Manager, no persistent VM)
@@ -366,4 +383,3 @@ Cost: Only pay for ~15 minutes of compute
 ---
 
 **Questions?** Check the documentation or run `./deploy_ephemeral.sh` to get started!
-

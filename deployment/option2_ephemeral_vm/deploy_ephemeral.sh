@@ -11,7 +11,7 @@ set -e
 # Configuration - UPDATE THESE VALUES
 # ============================================================================
 
-PROJECT_ID="your-gcp-project-id"
+PROJECT_ID="void-automation"
 REGION="us-central1"
 ZONE="us-central1-a"
 SERVICE_ACCOUNT_NAME="gsr-automation-runner"
@@ -19,7 +19,7 @@ SECRET_NAME="gsr-automation-env"
 BUCKET_NAME="gsr-automation-results"
 FUNCTION_NAME="trigger-gsr-automation"
 SCHEDULER_JOB_NAME="gsr-automation-scheduler"
-REPO_URL="https://github.com/YOUR_USERNAME/gsr_automation.git"
+REPO_URL="https://github.com/Business-Facilitating/void_credit_retrieval_project.git"
 
 # Schedule: Every other day at 2:00 AM
 SCHEDULE="0 2 */2 * *"

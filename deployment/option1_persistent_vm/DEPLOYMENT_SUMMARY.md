@@ -15,28 +15,39 @@ This document summarizes the deployment setup for running the GSR Automation pip
 ### 1. **Makefile** (Project Root)
 
 A comprehensive automation file with commands for:
+
 - **Setup:** `make setup`, `make check-deps`, `make env-check`
-- **Pipeline Execution:** `make pipeline-step1`, `make pipeline-step2`, `make pipeline-step3`, `make pipeline-full`
-- **Testing:** `make test-step1`, `make test-step2`, `make test-step3`
+- **Pipeline Execution:** `make pipeline-step1`, `make pipeline-step2`, `make pipeline-step3`, `make pipeline-step4`, `make pipeline-full`
+- **Testing:** `make test-step1`, `make test-step2`, `make test-step3`, `make test-step4`
 - **Monitoring:** `make status`, `make logs`
 - **Cleanup:** `make clean-logs`, `make clean-output`, `make clean-all`
 
+**Pipeline Steps:**
+
+1. Extract carrier invoice data from ClickHouse
+2. Extract industry index logins from PeerDB
+3. Filter label-only tracking numbers
+4. Automated UPS shipment void
+
 **Key Features:**
+
 - Color-coded output for better readability
-- Automatic Xvfb management for Step 3 (web automation)
-- Sequential execution with configurable delays
+- Automatic Xvfb management for Step 4 (web automation)
+- Sequential execution with configurable delays (60s, 30s, 120s)
 - Background execution support
-- Comprehensive error handling
+- Comprehensive error handling with graceful PeerDB failure handling
 
 ### 2. **crontab.txt** (Project Root)
 
 Cron job configuration file with:
+
 - Multiple scheduling options (daily, multiple times per day, specific days)
 - Maintenance jobs (log cleanup, output cleanup)
 - Detailed documentation and examples
 - Best practices and troubleshooting tips
 
 **Recommended Cron Setup:**
+
 ```bash
 # Run full pipeline daily at 2:00 AM
 0 2 * * * cd /home/YOUR_USERNAME/gsr_automation && make pipeline-full >> logs/cron_pipeline_full.log 2>&1
@@ -51,6 +62,7 @@ Cron job configuration file with:
 ### 3. **scripts/run_pipeline_with_notifications.sh**
 
 Enhanced pipeline runner with:
+
 - Comprehensive error handling
 - Detailed logging with timestamps
 - Email notifications (optional)
@@ -58,6 +70,7 @@ Enhanced pipeline runner with:
 - Status reporting
 
 **Usage:**
+
 ```bash
 chmod +x scripts/run_pipeline_with_notifications.sh
 ./scripts/run_pipeline_with_notifications.sh
@@ -290,18 +303,21 @@ du -sh logs/ data/output/
 ## 📊 Expected Output
 
 ### Step 1 Output
+
 - **File:** `carrier_invoice_extraction.duckdb`
 - **Contains:** Tracking numbers from 85-89 days ago
 - **Size:** Varies (typically 10-100 MB)
 
 ### Step 2 Output
-- **Files:** 
+
+- **Files:**
   - `ups_label_only_tracking_range_*.csv`
   - `ups_label_only_filter_range_*.json`
 - **Contains:** Filtered tracking numbers with label-only status
 - **Size:** Varies (typically 1-10 MB)
 
 ### Step 3 Output
+
 - **Files:** `*.png` (screenshots)
 - **Contains:** Screenshots of UPS website navigation
 - **Size:** ~100-500 KB per screenshot
@@ -312,12 +328,12 @@ du -sh logs/ data/output/
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| Cron job doesn't run | Check PATH in crontab, verify cron service |
-| Step 3 fails | Install Xvfb: `sudo apt-get install -y xvfb` |
-| Permission denied | `chmod +x scripts/*.sh` and `chmod 600 .env` |
-| Pipeline fails at step | Test individually: `make test-step1`, etc. |
+| Issue                  | Solution                                     |
+| ---------------------- | -------------------------------------------- |
+| Cron job doesn't run   | Check PATH in crontab, verify cron service   |
+| Step 3 fails           | Install Xvfb: `sudo apt-get install -y xvfb` |
+| Permission denied      | `chmod +x scripts/*.sh` and `chmod 600 .env` |
+| Pipeline fails at step | Test individually: `make test-step1`, etc.   |
 
 ### Debug Commands
 
@@ -360,6 +376,7 @@ grep CRON /var/log/syslog | tail -20
 ## 🎯 Success Criteria
 
 ✅ **Setup Complete When:**
+
 - All `make test-step*` commands pass
 - `make pipeline-full` completes successfully
 - Output files created in `data/output/`
@@ -367,6 +384,7 @@ grep CRON /var/log/syslog | tail -20
 - Cron jobs listed in `crontab -l`
 
 ✅ **Production Ready When:**
+
 - Pipeline runs successfully via cron
 - Logs show no errors
 - Output files generated daily
@@ -394,9 +412,10 @@ The GSR Automation pipeline is now fully configured for deployment on GCP Linux 
 ✅ **Error Handling** - Comprehensive logging and notifications  
 ✅ **Monitoring** - Status and log viewing commands  
 ✅ **Maintenance** - Automatic cleanup of old files  
-✅ **Documentation** - Complete guides and quick references  
+✅ **Documentation** - Complete guides and quick references
 
 **Next Steps:**
+
 1. Complete initial setup on GCP VM
 2. Test all pipeline steps
 3. Configure cron jobs
@@ -404,4 +423,3 @@ The GSR Automation pipeline is now fully configured for deployment on GCP Linux 
 5. Setup regular maintenance
 
 **The pipeline is ready for production deployment!** 🚀
-

@@ -20,7 +20,13 @@ Usage:
     poetry run python src/ups_shipment_void_automation.py --csv <path_to_csv>
 
 Configuration:
-    Set in .env file:
+    Date Window:
+    - This script does NOT have its own date filtering logic
+    - It reads tracking numbers from the CSV output of ups_label_only_filter.py
+    - To change the date window for tracking numbers, modify the configuration in:
+      * ups_label_only_filter.py: TRANSACTION_DATE_START_DAYS_AGO and TRANSACTION_DATE_END_DAYS_AGO
+
+    Environment Variables (.env file):
     - UPS_WEB_LOGIN_URL: UPS login page URL
     - CLICKHOUSE_HOST: ClickHouse host for carrier invoice data
     - CLICKHOUSE_PORT: ClickHouse port
@@ -46,6 +52,7 @@ Project: gsr_automation
 import argparse
 import csv
 import glob
+import json
 import logging
 import os
 import sys
@@ -78,6 +85,9 @@ PEERDB_DUCKDB_PATH = os.getenv(
     "PEERDB_DUCKDB_PATH", "peerdb_industry_index_logins.duckdb"
 )
 PEERDB_TABLE_NAME = "peerdb_data.industry_index_logins"
+
+# Tracking state file configuration
+TRACKING_STATE_FILE = os.path.join(OUTPUT_DIR, "ups_void_tracking_state.json")
 
 # Browser configuration
 DEFAULT_TIMEOUT = 30000  # 30 seconds in milliseconds
@@ -305,6 +315,149 @@ def map_tracking_to_credentials(
     )
 
     return mapped_data
+
+
+def load_tracking_state(
+    state_file: str = TRACKING_STATE_FILE,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Load the tracking state from JSON file
+
+    Args:
+        state_file: Path to the tracking state JSON file
+
+    Returns:
+        Dictionary mapping tracking_number to state information
+        Format: {
+            "tracking_number": {
+                "status": "voided" | "no_dispute_button" | "error" | "already_voided",
+                "timestamp": "2025-11-17T18:30:00",
+                "account_number": "123456",
+                "error_message": "optional error details"
+            }
+        }
+    """
+    if not os.path.exists(state_file):
+        logger.info(f"📝 No existing tracking state file found at {state_file}")
+        return {}
+
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        logger.info(
+            f"✅ Loaded tracking state: {len(state)} tracking numbers previously processed"
+        )
+        return state
+    except Exception as e:
+        logger.error(f"❌ Error loading tracking state: {e}")
+        return {}
+
+
+def save_tracking_state(
+    state: Dict[str, Dict[str, Any]], state_file: str = TRACKING_STATE_FILE
+):
+    """
+    Save the tracking state to JSON file
+
+    Args:
+        state: Dictionary mapping tracking_number to state information
+        state_file: Path to the tracking state JSON file
+    """
+    try:
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        logger.debug(f"💾 Saved tracking state: {len(state)} tracking numbers")
+    except Exception as e:
+        logger.error(f"❌ Error saving tracking state: {e}")
+
+
+def update_tracking_state(
+    tracking_number: str,
+    status: str,
+    account_number: str,
+    error_message: str = "",
+    state_file: str = TRACKING_STATE_FILE,
+):
+    """
+    Update the state for a single tracking number and save immediately
+
+    Args:
+        tracking_number: The tracking number to update
+        status: Status of the tracking number (voided, no_dispute_button, error, already_voided)
+        account_number: Account number associated with the tracking number
+        error_message: Optional error message if status is "error"
+        state_file: Path to the tracking state JSON file
+    """
+    # Load current state
+    state = load_tracking_state(state_file)
+
+    # Update state for this tracking number
+    state[tracking_number] = {
+        "status": status,
+        "timestamp": datetime.now().isoformat(),
+        "account_number": account_number,
+        "error_message": error_message,
+    }
+
+    # Save immediately
+    save_tracking_state(state, state_file)
+    logger.debug(f"✅ Updated state for {tracking_number}: {status}")
+
+
+def should_skip_tracking_number(
+    tracking_number: str, state: Dict[str, Dict[str, Any]], retry_errors: bool = False
+) -> tuple[bool, str]:
+    """
+    Check if a tracking number should be skipped based on its state
+
+    Args:
+        tracking_number: The tracking number to check
+        state: Current tracking state dictionary
+        retry_errors: Whether to retry tracking numbers that previously failed with errors
+
+    Returns:
+        Tuple of (should_skip: bool, reason: str)
+    """
+    if tracking_number not in state:
+        return False, ""
+
+    tracking_state = state[tracking_number]
+    status = tracking_state.get("status", "")
+    timestamp = tracking_state.get("timestamp", "")
+
+    if status == "voided":
+        return True, f"Already voided on {timestamp}"
+    elif status == "already_voided":
+        return True, f"Already checked - was already voided on {timestamp}"
+    elif status == "no_dispute_button":
+        return True, f"Already checked - no dispute button available on {timestamp}"
+    elif status == "error":
+        if retry_errors:
+            return False, f"Retrying previous error from {timestamp}"
+        else:
+            return (
+                True,
+                f"Previously failed on {timestamp}: {tracking_state.get('error_message', 'Unknown error')}",
+            )
+
+    return False, ""
+
+
+def reset_tracking_state(state_file: str = TRACKING_STATE_FILE):
+    """
+    Reset the tracking state by deleting the state file
+
+    Args:
+        state_file: Path to the tracking state JSON file
+    """
+    if os.path.exists(state_file):
+        try:
+            os.remove(state_file)
+            logger.info(f"✅ Tracking state reset: deleted {state_file}")
+        except Exception as e:
+            logger.error(f"❌ Error resetting tracking state: {e}")
+    else:
+        logger.info(f"ℹ️ No tracking state file to reset at {state_file}")
 
 
 class UPSVoidAutomation:
@@ -695,6 +848,7 @@ class UPSVoidAutomation:
             "success": False,
             "message": "",
             "screenshot": "",
+            "dispute_status": "unknown",  # voided, no_dispute_button, error, unknown
         }
 
         try:
@@ -1129,6 +1283,158 @@ class UPSVoidAutomation:
                                                     logger.info(
                                                         "✅ Successfully submitted dispute with Void Credits"
                                                     )
+
+                                                    # Mark as voided
+                                                    result["dispute_status"] = "voided"
+
+                                                    # Step 11: Close the confirmation dialog/modal
+                                                    logger.info(
+                                                        "🖱️ Step 11: Looking for Close/OK button to dismiss confirmation..."
+                                                    )
+                                                    try:
+                                                        # Wait a bit for confirmation dialog to appear
+                                                        self.page.wait_for_timeout(2000)
+
+                                                        # Try multiple selectors for close/dismiss buttons
+                                                        close_button_selectors = [
+                                                            'button:has-text("Close")',
+                                                            'button:has-text("OK")',
+                                                            'button:has-text("Done")',
+                                                            'button[aria-label="Close"]',
+                                                            "button.close",
+                                                            '[role="dialog"] button:has-text("×")',
+                                                            '[role="dialog"] button.btn-close',
+                                                            'button:has-text("Continue")',
+                                                        ]
+
+                                                        close_button_found = False
+                                                        for (
+                                                            selector
+                                                        ) in close_button_selectors:
+                                                            try:
+                                                                close_button = (
+                                                                    self.page.locator(
+                                                                        selector
+                                                                    ).first
+                                                                )
+                                                                if close_button.is_visible(
+                                                                    timeout=2000
+                                                                ):
+                                                                    logger.info(
+                                                                        f"✅ Found close button with selector: {selector}"
+                                                                    )
+                                                                    logger.info(
+                                                                        "🖱️ Clicking close button..."
+                                                                    )
+                                                                    close_button.click()
+                                                                    close_button_found = (
+                                                                        True
+                                                                    )
+
+                                                                    # Wait for dialog to close
+                                                                    self.page.wait_for_timeout(
+                                                                        1000
+                                                                    )
+
+                                                                    if save_screenshots:
+                                                                        self.save_screenshot(
+                                                                            "20_confirmation_closed"
+                                                                        )
+
+                                                                    logger.info(
+                                                                        "✅ Successfully closed confirmation dialog"
+                                                                    )
+                                                                    break
+                                                            except Exception:
+                                                                continue
+
+                                                        if not close_button_found:
+                                                            logger.warning(
+                                                                "⚠️ No close button found, attempting to press Escape key..."
+                                                            )
+                                                            # Try pressing Escape key to close dialog
+                                                            self.page.keyboard.press(
+                                                                "Escape"
+                                                            )
+                                                            self.page.wait_for_timeout(
+                                                                1000
+                                                            )
+
+                                                            if save_screenshots:
+                                                                self.save_screenshot(
+                                                                    "20_escape_pressed"
+                                                                )
+
+                                                            logger.info(
+                                                                "✅ Pressed Escape key to close dialog"
+                                                            )
+
+                                                    except Exception as e:
+                                                        logger.warning(
+                                                            f"⚠️ Could not close confirmation dialog: {str(e)}"
+                                                        )
+                                                        if save_screenshots:
+                                                            self.save_screenshot(
+                                                                "error_close_confirmation"
+                                                            )
+
+                                                    # Step 12: Close invoice details tab and return to Billing Center
+                                                    logger.info(
+                                                        "🖱️ Step 12: Closing invoice details tab and returning to Billing Center..."
+                                                    )
+                                                    try:
+                                                        # Get all open pages
+                                                        all_pages = (
+                                                            self.page.context.pages
+                                                        )
+                                                        logger.info(
+                                                            f"📊 Total open tabs before cleanup: {len(all_pages)}"
+                                                        )
+
+                                                        # Close the current invoice details tab
+                                                        current_page = self.page
+                                                        logger.info(
+                                                            f"🗑️ Closing current tab: {current_page.url}"
+                                                        )
+                                                        current_page.close()
+
+                                                        # Switch to the first page (main Billing Center tab)
+                                                        self.page = (
+                                                            self.page.context.pages[0]
+                                                        )
+                                                        logger.info(
+                                                            f"✅ Switched to main Billing Center tab: {self.page.url}"
+                                                        )
+
+                                                        # Wait for page to be ready
+                                                        self.page.wait_for_timeout(1000)
+
+                                                        # Verify we're on the Billing Center page
+                                                        remaining_pages = len(
+                                                            self.page.context.pages
+                                                        )
+                                                        logger.info(
+                                                            f"📊 Remaining open tabs: {remaining_pages}"
+                                                        )
+
+                                                        if save_screenshots:
+                                                            self.save_screenshot(
+                                                                "21_back_to_billing_center"
+                                                            )
+
+                                                        logger.info(
+                                                            "✅ Successfully closed invoice tab and returned to Billing Center"
+                                                        )
+
+                                                    except Exception as e:
+                                                        logger.warning(
+                                                            f"⚠️ Could not close tab and return to Billing Center: {str(e)}"
+                                                        )
+                                                        if save_screenshots:
+                                                            self.save_screenshot(
+                                                                "error_back_to_billing"
+                                                            )
+
                                                 else:
                                                     logger.warning(
                                                         "⚠️ Submit button not found"
@@ -1186,8 +1492,35 @@ class UPSVoidAutomation:
                             else:
                                 logger.warning("⚠️ 'Dispute' option not found in menu")
                                 logger.info("⏭️ Skipping to next tracking number...")
+                                result["dispute_status"] = "no_dispute_button"
                                 if save_screenshots:
                                     self.save_screenshot("error_dispute_not_found")
+
+                                # Close invoice details tab and return to Billing Center
+                                try:
+                                    logger.info(
+                                        "🗑️ Closing invoice details tab (no dispute button)..."
+                                    )
+                                    all_pages = self.page.context.pages
+                                    logger.info(
+                                        f"📊 Total open tabs before cleanup: {len(all_pages)}"
+                                    )
+
+                                    current_page = self.page
+                                    current_page.close()
+
+                                    self.page = self.page.context.pages[0]
+                                    logger.info(
+                                        f"✅ Switched to main Billing Center tab: {self.page.url}"
+                                    )
+
+                                    remaining_pages = len(self.page.context.pages)
+                                    logger.info(
+                                        f"📊 Remaining open tabs: {remaining_pages}"
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"⚠️ Could not close tab: {str(e)}")
+
                         else:
                             logger.warning("⚠️ Three-dot menu button not found")
                             if save_screenshots:
@@ -1215,9 +1548,32 @@ class UPSVoidAutomation:
 
         except Exception as e:
             result["message"] = f"Search failed: {str(e)}"
+            result["dispute_status"] = "error"
             logger.error(f"❌ {result['message']}")
             if save_screenshots:
                 result["screenshot"] = self.save_screenshot("error_search_exception")
+
+        # Final cleanup: Ensure we're back on the main Billing Center tab
+        # This handles any edge cases where tab cleanup didn't happen earlier
+        try:
+            all_pages = self.page.context.pages
+            if len(all_pages) > 1:
+                logger.info(
+                    f"🧹 Final cleanup: {len(all_pages)} tabs open, closing extra tabs..."
+                )
+                # Close all tabs except the first one (Billing Center)
+                for page in all_pages[1:]:
+                    try:
+                        page.close()
+                        logger.info(f"🗑️ Closed extra tab: {page.url}")
+                    except Exception:
+                        pass  # Tab might already be closed
+
+                # Switch to the first page
+                self.page = self.page.context.pages[0]
+                logger.info(f"✅ Final cleanup complete, on main tab: {self.page.url}")
+        except Exception as e:
+            logger.warning(f"⚠️ Final tab cleanup failed: {str(e)}")
 
         return result
 
@@ -1282,6 +1638,13 @@ def process_shipments(
                         f"❌ Login failed for account {account_data['account_number']}"
                     )
                     for tracking_item in account_data["tracking_numbers"]:
+                        # Update tracking state for login failure
+                        update_tracking_state(
+                            tracking_number=tracking_item["tracking_number"],
+                            status="error",
+                            account_number=tracking_item["full_account_number"],
+                            error_message=f"Login failed: {login_result['message']}",
+                        )
                         results.append(
                             {
                                 "tracking_number": tracking_item["tracking_number"],
@@ -1331,6 +1694,40 @@ def process_shipments(
                                 f"⚠️ Failed to search for tracking number: {search_result['message']}"
                             )
 
+                        # Update tracking state based on dispute status
+                        dispute_status = search_result.get("dispute_status", "unknown")
+                        if dispute_status == "voided":
+                            update_tracking_state(
+                                tracking_number=tracking_item["tracking_number"],
+                                status="voided",
+                                account_number=tracking_item["full_account_number"],
+                            )
+                        elif dispute_status == "no_dispute_button":
+                            update_tracking_state(
+                                tracking_number=tracking_item["tracking_number"],
+                                status="no_dispute_button",
+                                account_number=tracking_item["full_account_number"],
+                            )
+                        elif dispute_status == "error":
+                            update_tracking_state(
+                                tracking_number=tracking_item["tracking_number"],
+                                status="error",
+                                account_number=tracking_item["full_account_number"],
+                                error_message=search_result.get(
+                                    "message", "Unknown error"
+                                ),
+                            )
+                    else:
+                        # Billing center navigation failed
+                        update_tracking_state(
+                            tracking_number=tracking_item["tracking_number"],
+                            status="error",
+                            account_number=tracking_item["full_account_number"],
+                            error_message=billing_result.get(
+                                "message", "Failed to navigate to Billing Center"
+                            ),
+                        )
+
                     # Record results for this tracking number
                     results.append(
                         {
@@ -1358,6 +1755,13 @@ def process_shipments(
                 f"❌ Error processing account {account_data['account_number']}: {e}"
             )
             for tracking_item in account_data["tracking_numbers"]:
+                # Update tracking state for account-level exception
+                update_tracking_state(
+                    tracking_number=tracking_item["tracking_number"],
+                    status="error",
+                    account_number=tracking_item["full_account_number"],
+                    error_message=f"Account processing error: {str(e)}",
+                )
                 results.append(
                     {
                         "tracking_number": tracking_item["tracking_number"],
@@ -1456,6 +1860,16 @@ def main():
         action="store_true",
         help="Submit the dispute form (default: False, form will be filled but not submitted)",
     )
+    parser.add_argument(
+        "--reset-tracking",
+        action="store_true",
+        help="Reset tracking state and reprocess all tracking numbers from scratch",
+    )
+    parser.add_argument(
+        "--retry-errors",
+        action="store_true",
+        help="Retry tracking numbers that previously failed with errors",
+    )
 
     args = parser.parse_args()
 
@@ -1463,10 +1877,18 @@ def main():
     headless = not args.headed if args.headed else args.headless
     save_screenshots = not args.no_screenshots
     submit_dispute = args.submit
+    retry_errors = args.retry_errors
 
     logger.info("=" * 60)
     logger.info("🚀 UPS SHIPMENT VOID AUTOMATION")
     logger.info("=" * 60)
+
+    # Handle tracking state reset if requested
+    if args.reset_tracking:
+        logger.info("\n🔄 Resetting tracking state...")
+        reset_tracking_state()
+        logger.info("✅ Tracking state reset complete")
+        logger.info("=" * 60)
 
     # Determine which CSV file to use
     csv_path = args.csv
@@ -1508,10 +1930,39 @@ def main():
         logger.error("❌ No tracking numbers could be mapped to credentials. Exiting.")
         return 1
 
+    # Step 3.5: Load tracking state and filter already-processed tracking numbers
+    logger.info("\n📋 Step 3.5: Checking tracking state...")
+    tracking_state = load_tracking_state()
+
+    # Filter out already-processed tracking numbers
+    filtered_data = []
+    skipped_count = 0
+    for item in mapped_data:
+        tracking_number = item["tracking_number"]
+        should_skip, reason = should_skip_tracking_number(
+            tracking_number, tracking_state, retry_errors
+        )
+
+        if should_skip:
+            logger.info(f"⏭️ Skipping {tracking_number}: {reason}")
+            skipped_count += 1
+        else:
+            filtered_data.append(item)
+
+    logger.info(
+        f"✅ Filtered tracking numbers: {len(filtered_data)} to process, {skipped_count} skipped"
+    )
+
+    if not filtered_data:
+        logger.info("ℹ️ No tracking numbers to process (all already processed)")
+        logger.info("💡 Use --reset-tracking to reprocess all tracking numbers")
+        logger.info("💡 Use --retry-errors to retry previously failed tracking numbers")
+        return 0
+
     # Step 4: Process shipments
     logger.info("\n🔄 Step 4: Processing shipments...")
     results = process_shipments(
-        mapped_data,
+        filtered_data,
         headless=headless,
         save_screenshots=save_screenshots,
         submit_dispute=submit_dispute,
