@@ -157,7 +157,11 @@ pipeline-step1:
 	@if [ $$? -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 1 completed successfully$(NC)"; \
 		echo "$(BLUE)📤 Uploading Step 1 outputs to GCS...$(NC)"; \
-		$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 1 --files $(DATA_OUTPUT_DIR)/carrier_invoice_extraction.duckdb || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		if [ -f $(DATA_OUTPUT_DIR)/carrier_invoice_extraction.duckdb ]; then \
+			$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 1 --files $(DATA_OUTPUT_DIR)/carrier_invoice_extraction.duckdb || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		else \
+			echo "$(YELLOW)⚠️  No Step 1 output files found to upload$(NC)"; \
+		fi; \
 	else \
 		echo "$(RED)❌ Step 1 failed$(NC)"; \
 		exit 1; \
@@ -173,7 +177,12 @@ pipeline-step2:
 	@if [ $$? -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 2 completed successfully$(NC)"; \
 		echo "$(BLUE)📤 Uploading Step 2 outputs to GCS...$(NC)"; \
-		$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 2 --files $(DATA_OUTPUT_DIR)/peerdb_industry_index_logins_*.csv || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		FILES=$$(ls $(DATA_OUTPUT_DIR)/peerdb_industry_index_logins_*.csv 2>/dev/null); \
+		if [ -n "$$FILES" ]; then \
+			$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 2 --files $$FILES || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		else \
+			echo "$(YELLOW)⚠️  No Step 2 output files found to upload$(NC)"; \
+		fi; \
 	else \
 		echo "$(YELLOW)⚠️  Step 2 failed - continuing with pipeline (login credentials may not be available)$(NC)"; \
 	fi
@@ -188,7 +197,12 @@ pipeline-step3:
 	@if [ $$? -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 3 completed successfully$(NC)"; \
 		echo "$(BLUE)📤 Uploading Step 3 outputs to GCS...$(NC)"; \
-		$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 3 --files $(DATA_OUTPUT_DIR)/ups_label_only_tracking_range_*.csv $(DATA_OUTPUT_DIR)/ups_label_only_filter_range_*.json || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		FILES=$$(ls $(DATA_OUTPUT_DIR)/ups_label_only_tracking_range_*.csv $(DATA_OUTPUT_DIR)/ups_label_only_filter_range_*.json 2>/dev/null); \
+		if [ -n "$$FILES" ]; then \
+			$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 3 --files $$FILES || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		else \
+			echo "$(YELLOW)⚠️  No Step 3 output files found to upload$(NC)"; \
+		fi; \
 	else \
 		echo "$(RED)❌ Step 3 failed$(NC)"; \
 		exit 1; \
@@ -212,7 +226,12 @@ pipeline-step4:
 	if [ $$EXIT_CODE -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 4 completed successfully$(NC)"; \
 		echo "$(BLUE)📤 Uploading Step 4 outputs to GCS (excluding screenshots)...$(NC)"; \
-		$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 4 --files $(DATA_OUTPUT_DIR)/ups_void_automation_results_*.csv || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		FILES=$$(ls $(DATA_OUTPUT_DIR)/ups_void_automation_results_*.csv 2>/dev/null); \
+		if [ -n "$$FILES" ]; then \
+			$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 4 --files $$FILES || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
+		else \
+			echo "$(YELLOW)⚠️  No Step 4 output files found to upload$(NC)"; \
+		fi; \
 	else \
 		echo "$(RED)❌ Step 4 failed$(NC)"; \
 		exit 1; \
