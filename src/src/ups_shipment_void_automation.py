@@ -1152,6 +1152,32 @@ class UPSVoidAutomation:
 
                             logger.info("✅ Three-dot menu opened")
 
+                            # DEBUG: Log all menu options
+                            try:
+                                logger.info("🔍 DEBUG: Checking all menu options...")
+                                # Try to find all menu items (common selectors for dropdown menus)
+                                menu_items = self.page.locator(
+                                    '[role="menuitem"], [role="option"], ul li, .menu-item, button'
+                                ).all()
+                                logger.info(
+                                    f"📋 Found {len(menu_items)} potential menu items"
+                                )
+                                for i, item in enumerate(
+                                    menu_items[:10]
+                                ):  # Log first 10 items
+                                    try:
+                                        text = item.text_content()
+                                        if text and text.strip():
+                                            logger.info(
+                                                f"   Menu item {i+1}: '{text.strip()}'"
+                                            )
+                                    except:
+                                        pass
+                            except Exception as e:
+                                logger.warning(
+                                    f"⚠️ Could not debug menu items: {str(e)}"
+                                )
+
                             # Step 8: Click "Dispute" option
                             logger.info("🖱️ Step 8: Looking for 'Dispute' option...")
                             dispute_option = self.page.locator('text="Dispute"').first
