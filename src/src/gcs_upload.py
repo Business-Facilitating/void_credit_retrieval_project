@@ -9,7 +9,7 @@ where the VM is destroyed after the pipeline completes.
 
 Features:
 - Upload files to GCS with organized folder structure
-- Exclude screenshot files from Step 4 uploads
+- Upload all files including screenshots for verification
 - Proper error handling and logging
 - Support for enabling/disabling uploads via environment variable
 - Automatic timestamp-based folder organization
@@ -121,13 +121,7 @@ def should_exclude_file(filepath: str, step: int) -> bool:
     Returns:
         True if file should be excluded, False otherwise
     """
-    # Step 4: Exclude screenshot files (PNG, JPG, JPEG)
-    if step == 4:
-        file_ext = Path(filepath).suffix.lower()
-        if file_ext in [".png", ".jpg", ".jpeg"]:
-            logger.info(f"⏭️  Excluding screenshot file: {Path(filepath).name}")
-            return True
-
+    # No files are excluded - upload everything including screenshots
     return False
 
 
