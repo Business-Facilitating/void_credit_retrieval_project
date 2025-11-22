@@ -282,6 +282,38 @@ pipeline-full-bg:
 	@echo "$(YELLOW)📁 Log file: $(LOG_DIR)/pipeline_full_$(TIMESTAMP).log$(NC)"
 	@echo "$(YELLOW)💡 Use 'make logs' to view progress$(NC)"
 
+.PHONY: pipeline-test-steps0-3
+pipeline-test-steps0-3:
+	@echo "$(GREEN)============================================================$(NC)"
+	@echo "$(GREEN)🧪 Running Test Pipeline (Steps 0-3 Only)$(NC)"
+	@echo "$(GREEN)============================================================$(NC)"
+	@echo "$(BLUE)Step 0/3: Whitelisting VM IP address via Slack...$(NC)"
+	@$(MAKE) pipeline-step0
+	@echo "$(YELLOW)⏳ Waiting $(DELAY_AFTER_WHITELIST) seconds before Step 1...$(NC)"
+	@sleep $(DELAY_AFTER_WHITELIST)
+	@echo "$(BLUE)Step 1/3: Extracting carrier invoice data from ClickHouse...$(NC)"
+	@$(MAKE) pipeline-step1
+	@echo "$(YELLOW)⏳ Waiting $(DELAY_AFTER_PIPELINE) seconds before Step 2...$(NC)"
+	@sleep $(DELAY_AFTER_PIPELINE)
+	@echo "$(BLUE)Step 2/3: Extracting industry index logins from PeerDB...$(NC)"
+	@$(MAKE) pipeline-step2
+	@echo "$(YELLOW)⏳ Waiting $(DELAY_AFTER_PEERDB) seconds before Step 3...$(NC)"
+	@sleep $(DELAY_AFTER_PEERDB)
+	@echo "$(BLUE)Step 3/3: Filtering label-only tracking numbers (5-minute timeout)...$(NC)"
+	@timeout 300 $(MAKE) pipeline-step3 || { \
+		EXIT_CODE=$$?; \
+		if [ $$EXIT_CODE -eq 124 ]; then \
+			echo "$(YELLOW)⏱️  Step 3 timed out after 5 minutes (expected for testing)$(NC)"; \
+			echo "$(GREEN)✅ Test pipeline completed (Steps 0-3)$(NC)"; \
+		else \
+			echo "$(RED)❌ Step 3 failed with exit code $$EXIT_CODE$(NC)"; \
+			exit $$EXIT_CODE; \
+		fi; \
+	}
+	@echo "$(GREEN)============================================================$(NC)"
+	@echo "$(GREEN)✅ Test pipeline completed successfully!$(NC)"
+	@echo "$(GREEN)============================================================$(NC)"
+
 # ============================================================================
 # Testing
 # ============================================================================

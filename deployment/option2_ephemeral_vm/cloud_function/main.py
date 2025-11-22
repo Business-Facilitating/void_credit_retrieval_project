@@ -74,7 +74,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \\
 echo "Installing Playwright dependencies..."
 apt-get install -y \\
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \\
-    libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite0 libxdamage1 \\
+    libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 \\
     libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \\
     libasound2 libatspi2.0-0 libxshmfence1
 
@@ -140,9 +140,9 @@ echo "=========================================="
 if poetry run python -c "import os; from dotenv import load_dotenv; load_dotenv(); exit(0 if all([os.getenv(k) for k in ['CLICKHOUSE_HOST', 'CLICKHOUSE_USERNAME', 'CLICKHOUSE_PASSWORD']]) else 1)"; then
     echo "✅ Environment validation passed"
 
-    # Run the full pipeline using the Makefile in deployment/option1_persistent_vm
+    # Run the test pipeline (Steps 0-3 only, Step 3 with 5-minute timeout)
     export DISPLAY=:0
-    make -C deployment/option1_persistent_vm pipeline-full
+    make -C deployment/option1_persistent_vm pipeline-test-steps0-3
     
     PIPELINE_EXIT_CODE=$?
     
