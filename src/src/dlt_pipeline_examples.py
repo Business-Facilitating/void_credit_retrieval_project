@@ -58,12 +58,12 @@ from dateutil import parser
 # Example: If START=89 and END=89, extracts records from exactly 89 days ago (1-day window)
 #
 # These values can be overridden via environment variables:
-#   - DLT_PIPELINE_START_DAYS (default: 99)
-#   - DLT_PIPELINE_END_DAYS (default: 60)
+#   - DLT_PIPELINE_START_DAYS (default: 89)
+#   - DLT_PIPELINE_END_DAYS (default: 85)
 # ============================================================================
 
 TRANSACTION_DATE_START_DAYS_AGO = int(os.getenv("DLT_PIPELINE_START_DAYS", "89"))
-TRANSACTION_DATE_END_DAYS_AGO = int(os.getenv("DLT_PIPELINE_END_DAYS", "79"))
+TRANSACTION_DATE_END_DAYS_AGO = int(os.getenv("DLT_PIPELINE_END_DAYS", "85"))
 
 # ============================================================================
 
