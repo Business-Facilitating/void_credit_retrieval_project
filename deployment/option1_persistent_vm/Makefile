@@ -16,7 +16,7 @@
 
 # Python and Poetry
 PYTHON := python3
-POETRY := $(HOME)/.local/bin/poetry
+POETRY := poetry
 POETRY_RUN := $(POETRY) run python
 
 # Project paths
