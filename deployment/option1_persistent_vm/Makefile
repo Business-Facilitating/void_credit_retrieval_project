@@ -44,7 +44,7 @@ DISPLAY_NUM := 0
 SCREEN_RESOLUTION := 1920x1080x24
 
 # Timing configuration (in seconds)
-DELAY_AFTER_WHITELIST := 300  # 5 minutes for IP whitelist to propagate
+DELAY_AFTER_WHITELIST := 600  # 10 minutes for IP whitelist to propagate
 DELAY_AFTER_PIPELINE := 60
 DELAY_AFTER_PEERDB := 60
 DELAY_AFTER_FILTER := 120

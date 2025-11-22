@@ -127,46 +127,74 @@ class ClickHouseConnection:
         self.client = None
         self.connected = False
 
-    def connect(self):
-        """Establish connection to ClickHouse with error handling"""
+    def connect(self, max_retries=5, initial_delay=30):
+        """
+        Establish connection to ClickHouse with retry logic and exponential backoff
+
+        Args:
+            max_retries: Maximum number of connection attempts (default: 5)
+            initial_delay: Initial delay in seconds before first retry (default: 30)
+
+        Returns:
+            bool: True if connection successful, False otherwise
+        """
         if not CLICKHOUSE_AVAILABLE:
             print("⚠️ ClickHouse library not available")
             return False
 
-        try:
-            # Disable SSL warnings for ClickHouse Cloud connections
-            import urllib3
+        import time
 
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        import urllib3
 
-            self.client = clickhouse_connect.get_client(
-                host=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                database=self.database,
-                secure=self.secure,
-                connect_timeout=60,
-                send_receive_timeout=300,
-                verify=False,  # Disable SSL verification for Windows compatibility
-            )
+        # Disable SSL warnings for ClickHouse Cloud connections
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-            # Test connection
-            result = self.client.command("SELECT 1")
-            if result == 1:
-                self.connected = True
-                print(
-                    f"✅ Connected to ClickHouse: {self.host}:{self.port}/{self.database}"
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"🔄 ClickHouse connection attempt {attempt}/{max_retries}...")
+
+                self.client = clickhouse_connect.get_client(
+                    host=self.host,
+                    port=self.port,
+                    username=self.username,
+                    password=self.password,
+                    database=self.database,
+                    secure=self.secure,
+                    connect_timeout=60,
+                    send_receive_timeout=300,
+                    verify=False,  # Disable SSL verification for Windows compatibility
                 )
-                return True
-            else:
-                print(f"❌ ClickHouse connection test failed")
-                return False
 
-        except Exception as e:
-            print(f"❌ ClickHouse connection failed: {type(e).__name__}: {str(e)}")
-            self.connected = False
-            return False
+                # Test connection
+                result = self.client.command("SELECT 1")
+                if result == 1:
+                    self.connected = True
+                    print(
+                        f"✅ Connected to ClickHouse: {self.host}:{self.port}/{self.database} (attempt {attempt})"
+                    )
+                    return True
+                else:
+                    print(f"❌ ClickHouse connection test failed (attempt {attempt})")
+
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {str(e)}"
+                print(
+                    f"❌ ClickHouse connection failed (attempt {attempt}/{max_retries}): {error_msg}"
+                )
+
+                # If this is not the last attempt, wait before retrying
+                if attempt < max_retries:
+                    # Exponential backoff: 30s, 60s, 120s, 240s
+                    delay = initial_delay * (2 ** (attempt - 1))
+                    print(f"⏳ Waiting {delay} seconds before retry...")
+                    time.sleep(delay)
+                else:
+                    print(f"❌ All {max_retries} connection attempts failed")
+                    self.connected = False
+                    return False
+
+        self.connected = False
+        return False
 
     def execute_query(self, query, parameters=None):
         """Execute query with error handling"""
@@ -966,6 +994,8 @@ if __name__ == "__main__":
         print("\n2. Querying extracted data...")
         query_duckdb_data(limit=5)
 
+    print("\n✅ Pipeline execution completed!")
+    print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")
     print("\n✅ Pipeline execution completed!")
