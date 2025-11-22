@@ -110,8 +110,8 @@ export PATH="/root/.local/bin:$PATH"
 # Clone repository
 echo "Cloning repository..."
 cd /root
-git clone {REPO_URL} gsr_automation
-cd gsr_automation
+git clone {REPO_URL} void_credit_retrieval_project
+cd void_credit_retrieval_project
 git checkout {REPO_BRANCH}
 
 # Get .env from Secret Manager
@@ -139,9 +139,10 @@ echo "=========================================="
 
 if poetry run python -c "import os; from dotenv import load_dotenv; load_dotenv(); exit(0 if all([os.getenv(k) for k in ['CLICKHOUSE_HOST', 'CLICKHOUSE_USERNAME', 'CLICKHOUSE_PASSWORD']]) else 1)"; then
     echo "✅ Environment validation passed"
-    
-    # Run the full pipeline
-    make pipeline-full
+
+    # Run the full pipeline using the Makefile in deployment/option1_persistent_vm
+    export DISPLAY=:0
+    make -C deployment/option1_persistent_vm pipeline-full
     
     PIPELINE_EXIT_CODE=$?
     
