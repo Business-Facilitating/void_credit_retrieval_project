@@ -140,9 +140,9 @@ echo "=========================================="
 if poetry run python -c "import os; from dotenv import load_dotenv; load_dotenv(); exit(0 if all([os.getenv(k) for k in ['CLICKHOUSE_HOST', 'CLICKHOUSE_USERNAME', 'CLICKHOUSE_PASSWORD']]) else 1)"; then
     echo "✅ Environment validation passed"
 
-    # Run the test pipeline (Steps 0-3 only, Step 3 with 5-minute timeout)
+    # Run the full pipeline using the Makefile in deployment/option1_persistent_vm
     export DISPLAY=:0
-    make -C deployment/option1_persistent_vm pipeline-test-steps0-3
+    make -C deployment/option1_persistent_vm pipeline-full
     
     PIPELINE_EXIT_CODE=$?
     
