@@ -229,8 +229,8 @@ pipeline-step4:
 	EXIT_CODE=$$?; \
 	if [ $$EXIT_CODE -eq 0 ]; then \
 		echo "$(GREEN)✅ Step 4 completed successfully$(NC)"; \
-		echo "$(BLUE)📤 Uploading Step 4 outputs to GCS (excluding screenshots)...$(NC)"; \
-		FILES=$$(ls $(DATA_OUTPUT_DIR)/ups_void_automation_results_*.csv 2>/dev/null); \
+		echo "$(BLUE)📤 Uploading Step 4 outputs to GCS (including screenshots)...$(NC)"; \
+		FILES=$$(ls $(DATA_OUTPUT_DIR)/ups_void_automation_results_*.csv $(DATA_OUTPUT_DIR)/*.png 2>/dev/null); \
 		if [ -n "$$FILES" ]; then \
 			$(POETRY_RUN) $(SCRIPT_GCS_UPLOAD) --step 4 --files $$FILES || echo "$(YELLOW)⚠️  GCS upload failed (continuing pipeline)$(NC)"; \
 		else \
