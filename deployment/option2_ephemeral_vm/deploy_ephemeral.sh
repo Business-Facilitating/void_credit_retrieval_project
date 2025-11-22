@@ -22,8 +22,8 @@ SCHEDULER_JOB_NAME="gsr-automation-scheduler"
 REPO_URL="https://github.com/Business-Facilitating/void_credit_retrieval_project.git"
 REPO_BRANCH="dev"
 
-# Schedule: Every other day at 2:00 AM
-SCHEDULE="0 2 */2 * *"
+# Schedule: Every other day at 10:00 PM EST
+SCHEDULE="0 22 */2 * *"
 TIMEZONE="America/New_York"
 
 # ============================================================================
